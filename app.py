@@ -12,47 +12,232 @@ from plotly.subplots import make_subplots
 
 st.set_page_config(
     page_title="BTC CDV Analyzer",
-    layout="wide"
-)
-
-st.title("BTC CDV / Absorption Analyzer")
-
-st.write(
-    "Coinbaseの約定履歴から、5分足CDV・買い比率・売り比率・吸収候補を確認するWebアプリです。"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 
 # =========================================================
-# 入力欄
+# TradingView風CSS
 # =========================================================
 
-product_id = st.text_input("Product ID", value="BTC-USD")
+st.markdown(
+    """
+    <style>
+    .stApp {
+        background-color: #0f111a;
+        color: #d1d4dc;
+    }
 
-hours_back = st.number_input(
-    "何時間前から取得するか",
-    min_value=1,
-    max_value=24,
-    value=6,
-    step=1
+    [data-testid="stAppViewContainer"] {
+        background: linear-gradient(180deg, #0f111a 0%, #131722 100%);
+    }
+
+    [data-testid="stSidebar"] {
+        background-color: #131722;
+        border-right: 1px solid #2a2e39;
+    }
+
+    .block-container {
+        padding-top: 1.2rem;
+        padding-bottom: 2rem;
+        max-width: 1600px;
+    }
+
+    .tv-header {
+        background-color: #131722;
+        border: 1px solid #2a2e39;
+        border-radius: 12px;
+        padding: 14px 18px;
+        margin-bottom: 18px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.02);
+    }
+
+    .tv-title {
+        font-size: 26px;
+        font-weight: 800;
+        color: #f0f3fa;
+        letter-spacing: 0.3px;
+    }
+
+    .tv-subtitle {
+        font-size: 13px;
+        color: #9aa4b2;
+        margin-top: 4px;
+    }
+
+    .tv-badge {
+        background-color: #1e222d;
+        border: 1px solid #2a2e39;
+        border-radius: 999px;
+        padding: 6px 12px;
+        color: #22ab94;
+        font-size: 13px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .metric-card {
+        background-color: #131722;
+        border: 1px solid #2a2e39;
+        border-radius: 12px;
+        padding: 14px 16px;
+        margin-bottom: 10px;
+    }
+
+    .metric-label {
+        font-size: 12px;
+        color: #9aa4b2;
+        margin-bottom: 4px;
+    }
+
+    .metric-value {
+        font-size: 22px;
+        font-weight: 800;
+        color: #f0f3fa;
+    }
+
+    .metric-green {
+        color: #22ab94;
+    }
+
+    .metric-red {
+        color: #f23645;
+    }
+
+    label {
+        color: #b2b5be !important;
+        font-weight: 700 !important;
+    }
+
+    input, textarea, select {
+        background-color: #1e222d !important;
+        color: #d1d4dc !important;
+        border: 1px solid #2a2e39 !important;
+        border-radius: 8px !important;
+    }
+
+    .stButton > button {
+        background-color: #2962ff;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.65rem 1.2rem;
+        font-weight: 800;
+        width: 100%;
+    }
+
+    .stButton > button:hover {
+        background-color: #1e53e5;
+        color: white;
+    }
+
+    .stDownloadButton > button {
+        background-color: #1e222d;
+        color: #d1d4dc;
+        border: 1px solid #2a2e39;
+        border-radius: 8px;
+        font-weight: 700;
+    }
+
+    .stDownloadButton > button:hover {
+        background-color: #2a2e39;
+        color: #ffffff;
+    }
+
+    [data-testid="stDataFrame"] {
+        background-color: #131722;
+        border: 1px solid #2a2e39;
+        border-radius: 10px;
+        overflow: hidden;
+    }
+
+    h1, h2, h3 {
+        color: #f0f3fa !important;
+    }
+
+    .stAlert {
+        background-color: #1e222d;
+        border: 1px solid #2a2e39;
+        border-radius: 8px;
+        color: #d1d4dc;
+    }
+
+    [data-testid="stMetric"] {
+        background-color: #131722;
+        border: 1px solid #2a2e39;
+        border-radius: 10px;
+        padding: 12px;
+    }
+
+    hr {
+        border-color: #2a2e39;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
 )
 
-detail_5m_start_str = st.text_input(
-    "詳しく見る5分足 JST",
-    value="2026-06-13 20:55:00"
+
+# =========================================================
+# ヘッダー
+# =========================================================
+
+st.markdown(
+    """
+    <div class="tv-header">
+        <div>
+            <div class="tv-title">BTC CDV / Absorption Analyzer</div>
+            <div class="tv-subtitle">
+                Coinbase API × 5分足CDV × 吸収判定 × 防衛ライン確認
+            </div>
+        </div>
+        <div class="tv-badge">LIVE API MODE</div>
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
-price_round_digit = st.selectbox(
-    "価格帯別出来高の丸め",
-    options=[0, 1, 2],
-    index=1,
-    format_func=lambda x: {
-        0: "1ドル刻み",
-        1: "0.1ドル刻み",
-        2: "0.01ドル刻み"
-    }[x]
-)
 
-run = st.button("解析実行")
+# =========================================================
+# サイドバー入力
+# =========================================================
+
+with st.sidebar:
+    st.markdown("### Settings")
+
+    product_id = st.text_input("Product ID", value="BTC-USD")
+
+    hours_back = st.number_input(
+        "何時間前から取得するか",
+        min_value=1,
+        max_value=24,
+        value=6,
+        step=1
+    )
+
+    detail_5m_start_str = st.text_input(
+        "詳しく見る5分足 JST",
+        value="2026-06-13 20:55:00"
+    )
+
+    price_round_digit = st.selectbox(
+        "価格帯別出来高の丸め",
+        options=[0, 1, 2],
+        index=1,
+        format_func=lambda x: {
+            0: "1ドル刻み",
+            1: "0.1ドル刻み",
+            2: "0.01ドル刻み"
+        }[x]
+    )
+
+    st.markdown("---")
+
+    run = st.button("解析実行")
 
 
 # =========================================================
@@ -216,6 +401,10 @@ def show_candlestick_chart(df_candles, product_id):
             high=df_candles["high"],
             low=df_candles["low"],
             close=df_candles["close"],
+            increasing_line_color="#22ab94",
+            decreasing_line_color="#f23645",
+            increasing_fillcolor="#22ab94",
+            decreasing_fillcolor="#f23645",
             name=product_id
         ),
         row=1,
@@ -226,6 +415,7 @@ def show_candlestick_chart(df_candles, product_id):
         go.Bar(
             x=df_candles["time"],
             y=df_candles["volume"],
+            marker_color="#363a45",
             name="Volume"
         ),
         row=2,
@@ -233,14 +423,27 @@ def show_candlestick_chart(df_candles, product_id):
     )
 
     fig.update_layout(
-        height=700,
+        height=720,
         xaxis_rangeslider_visible=False,
         title=f"Coinbase {product_id} 5分足チャート",
-        margin=dict(l=20, r=20, t=50, b=20)
+        template="plotly_dark",
+        paper_bgcolor="#131722",
+        plot_bgcolor="#131722",
+        font=dict(color="#d1d4dc"),
+        margin=dict(l=20, r=20, t=50, b=20),
+        showlegend=False
     )
 
-    fig.update_yaxes(title_text="Price", row=1, col=1)
-    fig.update_yaxes(title_text="Volume", row=2, col=1)
+    fig.update_xaxes(
+        gridcolor="#2a2e39",
+        zerolinecolor="#2a2e39",
+        rangeslider_visible=False
+    )
+
+    fig.update_yaxes(
+        gridcolor="#2a2e39",
+        zerolinecolor="#2a2e39"
+    )
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -303,29 +506,25 @@ def make_5m_summary(df_range):
     summary_5m["candle_move"] = summary_5m["close"] - summary_5m["open"]
     summary_5m["range"] = summary_5m["high"] - summary_5m["low"]
 
-    # 売り成行が多いのに陽線 or 下がらない
-    # = 買い吸収候補
+    # 売り成行が多いのに陽線 or 下がらない = 買い吸収候補
     summary_5m["buy_absorption_candidate"] = (
         (summary_5m["sell_ratio_%"] >= 60) &
         (summary_5m["candle_move"] >= 0)
     )
 
-    # 買い成行が多い陽線
-    # = 買い確認足
+    # 買い成行が多い陽線 = 買い確認足
     summary_5m["bullish_confirmation"] = (
         (summary_5m["buy_ratio_%"] >= 65) &
         (summary_5m["candle_move"] > 0)
     )
 
-    # 買い成行が多いのに陰線 or 上がらない
-    # = 売り吸収候補
+    # 買い成行が多いのに陰線 or 上がらない = 売り吸収候補
     summary_5m["sell_absorption_candidate"] = (
         (summary_5m["buy_ratio_%"] >= 60) &
         (summary_5m["candle_move"] <= 0)
     )
 
-    # 売り成行が多い陰線
-    # = 売り確認足
+    # 売り成行が多い陰線 = 売り確認足
     summary_5m["bearish_confirmation"] = (
         (summary_5m["sell_ratio_%"] >= 65) &
         (summary_5m["candle_move"] < 0)
@@ -498,6 +697,22 @@ def analyze_detail_5m(df_range, detail_start, price_round_digit):
 
 
 # =========================================================
+# メトリックカード
+# =========================================================
+
+def metric_card(label, value, color_class=""):
+    st.markdown(
+        f"""
+        <div class="metric-card">
+            <div class="metric-label">{label}</div>
+            <div class="metric-value {color_class}">{value}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# =========================================================
 # 実行
 # =========================================================
 
@@ -546,44 +761,67 @@ if run:
 
     summary_5m = make_5m_summary(df_range)
 
+    latest = summary_5m.tail(1).iloc[0]
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        metric_card("Latest Close", f"{latest['close']:.2f}")
+
+    with col2:
+        color = "metric-green" if latest["delta_BTC"] >= 0 else "metric-red"
+        metric_card("Latest Delta BTC", f"{latest['delta_BTC']:.4f}", color)
+
+    with col3:
+        metric_card("Buy Ratio", f"{latest['buy_ratio_%']:.2f}%", "metric-green")
+
+    with col4:
+        metric_card("Sell Ratio", f"{latest['sell_ratio_%']:.2f}%", "metric-red")
+
     st.subheader("5分足CDV集計 最新30本")
     st.dataframe(summary_5m.tail(30), use_container_width=True)
 
-    st.subheader("買い吸収候補")
-    st.dataframe(
-        summary_5m[summary_5m["buy_absorption_candidate"]],
-        use_container_width=True
-    )
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "買い吸収候補",
+        "買い確認足",
+        "売り吸収候補",
+        "売り確認足",
+        "防衛ライン候補"
+    ])
 
-    st.subheader("買い確認足")
-    st.dataframe(
-        summary_5m[summary_5m["bullish_confirmation"]],
-        use_container_width=True
-    )
-
-    st.subheader("売り吸収候補")
-    st.dataframe(
-        summary_5m[summary_5m["sell_absorption_candidate"]],
-        use_container_width=True
-    )
-
-    st.subheader("売り確認足")
-    st.dataframe(
-        summary_5m[summary_5m["bearish_confirmation"]],
-        use_container_width=True
-    )
-
-    st.subheader("防衛ライン候補")
-
-    defense_candidates = (
-        summary_5m[summary_5m["defense_score"] >= 3]
-        .sort_values(
-            ["defense_score", "volume_BTC"],
-            ascending=False
+    with tab1:
+        st.dataframe(
+            summary_5m[summary_5m["buy_absorption_candidate"]],
+            use_container_width=True
         )
-    )
 
-    st.dataframe(defense_candidates, use_container_width=True)
+    with tab2:
+        st.dataframe(
+            summary_5m[summary_5m["bullish_confirmation"]],
+            use_container_width=True
+        )
+
+    with tab3:
+        st.dataframe(
+            summary_5m[summary_5m["sell_absorption_candidate"]],
+            use_container_width=True
+        )
+
+    with tab4:
+        st.dataframe(
+            summary_5m[summary_5m["bearish_confirmation"]],
+            use_container_width=True
+        )
+
+    with tab5:
+        defense_candidates = (
+            summary_5m[summary_5m["defense_score"] >= 3]
+            .sort_values(
+                ["defense_score", "volume_BTC"],
+                ascending=False
+            )
+        )
+        st.dataframe(defense_candidates, use_container_width=True)
 
     # -----------------------------------------------------
     # 全体価格帯別出来高
@@ -609,11 +847,15 @@ if run:
     side_price_volume_all["合計"] = side_price_volume_all.sum(axis=1)
     side_price_volume_all = side_price_volume_all.sort_values("合計", ascending=False)
 
-    st.subheader("全体 価格帯別出来高 TOP30")
-    st.dataframe(volume_by_price_all.head(30), use_container_width=True)
+    col_a, col_b = st.columns(2)
 
-    st.subheader("全体 価格帯別 × 成行方向 TOP30")
-    st.dataframe(side_price_volume_all.head(30), use_container_width=True)
+    with col_a:
+        st.subheader("全体 価格帯別出来高 TOP30")
+        st.dataframe(volume_by_price_all.head(30), use_container_width=True)
+
+    with col_b:
+        st.subheader("全体 価格帯別 × 成行方向 TOP30")
+        st.dataframe(side_price_volume_all.head(30), use_container_width=True)
 
     # -----------------------------------------------------
     # CSVダウンロード
@@ -621,33 +863,39 @@ if run:
 
     st.subheader("CSVダウンロード")
 
-    st.download_button(
-        "約定履歴CSVをダウンロード",
-        df_range.to_csv(index=False).encode("utf-8-sig"),
-        file_name="trades.csv",
-        mime="text/csv"
-    )
+    dl1, dl2, dl3, dl4 = st.columns(4)
 
-    st.download_button(
-        "5分足CDV集計CSVをダウンロード",
-        summary_5m.to_csv().encode("utf-8-sig"),
-        file_name="5m_cdv_summary.csv",
-        mime="text/csv"
-    )
+    with dl1:
+        st.download_button(
+            "約定履歴CSV",
+            df_range.to_csv(index=False).encode("utf-8-sig"),
+            file_name="trades.csv",
+            mime="text/csv"
+        )
 
-    st.download_button(
-        "全体価格帯別出来高CSVをダウンロード",
-        volume_by_price_all.to_csv(index=False).encode("utf-8-sig"),
-        file_name="volume_by_price_all.csv",
-        mime="text/csv"
-    )
+    with dl2:
+        st.download_button(
+            "5分足CDV CSV",
+            summary_5m.to_csv().encode("utf-8-sig"),
+            file_name="5m_cdv_summary.csv",
+            mime="text/csv"
+        )
 
-    st.download_button(
-        "全体価格帯別×成行方向CSVをダウンロード",
-        side_price_volume_all.to_csv().encode("utf-8-sig"),
-        file_name="side_price_volume_all.csv",
-        mime="text/csv"
-    )
+    with dl3:
+        st.download_button(
+            "価格帯別出来高CSV",
+            volume_by_price_all.to_csv(index=False).encode("utf-8-sig"),
+            file_name="volume_by_price_all.csv",
+            mime="text/csv"
+        )
+
+    with dl4:
+        st.download_button(
+            "価格帯×成行CSV",
+            side_price_volume_all.to_csv().encode("utf-8-sig"),
+            file_name="side_price_volume_all.csv",
+            mime="text/csv"
+        )
 
     # -----------------------------------------------------
     # 特定5分足 詳細解析
@@ -674,48 +922,75 @@ if run:
             st.write("詳細サマリー")
             st.dataframe(detail["detail_summary"], use_container_width=True)
 
-            st.write("価格帯別出来高 TOP30")
-            st.dataframe(detail["volume_by_price"].head(30), use_container_width=True)
+            detail_tab1, detail_tab2, detail_tab3, detail_tab4, detail_tab5, detail_tab6 = st.tabs([
+                "価格帯別出来高",
+                "価格帯×成行方向",
+                "秒ごとの出来高",
+                "同時刻複数約定",
+                "同じサイズ連打",
+                "連続買い/売り"
+            ])
 
-            st.write("価格帯別 × 成行方向 TOP30")
-            st.dataframe(detail["side_price_volume"].head(30), use_container_width=True)
+            with detail_tab1:
+                st.dataframe(detail["volume_by_price"].head(30), use_container_width=True)
 
-            st.write("秒ごとの出来高 TOP30")
-            st.dataframe(detail["volume_by_second"].head(30), use_container_width=True)
+            with detail_tab2:
+                st.dataframe(detail["side_price_volume"].head(30), use_container_width=True)
 
-            st.write("同時刻複数約定 TOP30")
-            st.dataframe(detail["same_time"].head(30), use_container_width=True)
+            with detail_tab3:
+                st.dataframe(detail["volume_by_second"].head(30), use_container_width=True)
 
-            st.write("同じサイズ連打 TOP30")
-            st.dataframe(detail["same_size"].head(30), use_container_width=True)
+            with detail_tab4:
+                st.dataframe(detail["same_time"].head(30), use_container_width=True)
 
-            st.write("連続買い/売りの塊 TOP30")
-            st.dataframe(detail["runs"].head(30), use_container_width=True)
+            with detail_tab5:
+                st.dataframe(detail["same_size"].head(30), use_container_width=True)
 
-            st.download_button(
-                "特定5分足 約定履歴CSVをダウンロード",
-                detail["df_detail"].to_csv(index=False).encode("utf-8-sig"),
-                file_name="detail_trades.csv",
-                mime="text/csv"
-            )
+            with detail_tab6:
+                st.dataframe(detail["runs"].head(30), use_container_width=True)
 
-            st.download_button(
-                "特定5分足 サマリーCSVをダウンロード",
-                detail["detail_summary"].to_csv(index=False).encode("utf-8-sig"),
-                file_name="detail_summary.csv",
-                mime="text/csv"
-            )
+            st.subheader("特定5分足 CSVダウンロード")
 
-            st.download_button(
-                "特定5分足 価格帯別出来高CSVをダウンロード",
-                detail["volume_by_price"].to_csv(index=False).encode("utf-8-sig"),
-                file_name="detail_volume_by_price.csv",
-                mime="text/csv"
-            )
+            d1, d2, d3, d4 = st.columns(4)
 
-            st.download_button(
-                "特定5分足 秒ごとの出来高CSVをダウンロード",
-                detail["volume_by_second"].to_csv().encode("utf-8-sig"),
-                file_name="detail_volume_by_second.csv",
-                mime="text/csv"
-            )
+            with d1:
+                st.download_button(
+                    "詳細約定CSV",
+                    detail["df_detail"].to_csv(index=False).encode("utf-8-sig"),
+                    file_name="detail_trades.csv",
+                    mime="text/csv"
+                )
+
+            with d2:
+                st.download_button(
+                    "詳細サマリーCSV",
+                    detail["detail_summary"].to_csv(index=False).encode("utf-8-sig"),
+                    file_name="detail_summary.csv",
+                    mime="text/csv"
+                )
+
+            with d3:
+                st.download_button(
+                    "詳細価格帯CSV",
+                    detail["volume_by_price"].to_csv(index=False).encode("utf-8-sig"),
+                    file_name="detail_volume_by_price.csv",
+                    mime="text/csv"
+                )
+
+            with d4:
+                st.download_button(
+                    "詳細秒別CSV",
+                    detail["volume_by_second"].to_csv().encode("utf-8-sig"),
+                    file_name="detail_volume_by_second.csv",
+                    mime="text/csv"
+                )
+else:
+    st.markdown(
+        """
+        <div class="metric-card">
+            <div class="metric-label">Ready</div>
+            <div class="metric-value">左の設定を確認して「解析実行」を押してください</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
