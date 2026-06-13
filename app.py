@@ -617,18 +617,15 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
                     y=group["spot_price"],
                     mode="markers",
                     marker=dict(
-                        size=13,
+                        size=marker_sizes.get(point_type, 13),
                         color=marker_colors.get(point_type, "#ffffff"),
                         symbol=marker_symbols.get(point_type, "circle"),
                         line=dict(width=marker_line_widths.get(point_type, 1.3), color=marker_line_colors.get(point_type, "#111111"))
                     ),
                     name=point_type,
                     text=group["reason"],
-                    hovertemplate=(
-                        "<b>%{text}</b><br>"
-                        "time=%{x}<br>"
-                        "price=%{y}<extra></extra>"
-                    )
+                    hoverinfo="skip",
+                    hovertemplate=None
                 ),
                 row=1,
                 col=1
@@ -729,7 +726,8 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
                 text=["SPOT"],
                 textposition="top center",
                 name="Selected Spot",
-                hovertemplate=f"<b>{selected_label}</b><extra></extra>"
+                hoverinfo="skip",
+                hovertemplate=None
             ),
             row=1,
             col=1
@@ -1580,6 +1578,8 @@ def render_analysis(data):
             <div class="metric-card">
                 <div class="metric-label">Selected Point</div>
                 <div class="metric-value">{selected_point['label']}</div>
+                <div class="metric-label" style="margin-top:6px;">Reason</div>
+                <div style="font-size:11px; line-height:1.45; color:#c8c3b8;">{selected_point['reason']}</div>
             </div>
             """,
             unsafe_allow_html=True
@@ -1587,17 +1587,24 @@ def render_analysis(data):
 
     st.subheader("Coinbase 5m Chart")
 
-    show_selected_only = False
-    if len(important_points) > 0 and selected_point is not None:
-        show_selected_only = st.checkbox(
-            "Selected icon only",
-            value=False,
-            help="Use this after selecting a row or clicking an icon. Streamlit does not reliably support double-click events in the standard table."
-        )
+    if "active_icon_type" not in st.session_state:
+        st.session_state["active_icon_type"] = "All"
+
+    filter_col1, filter_col2 = st.columns([1, 5])
+    with filter_col1:
+        if st.button("Show All Icons"):
+            st.session_state["active_icon_type"] = "All"
 
     chart_points = important_points
-    if show_selected_only and selected_point is not None:
-        chart_points = pd.DataFrame([selected_point])
+    active_icon_type = st.session_state.get("active_icon_type", "All")
+    if active_icon_type != "All" and len(important_points) > 0:
+        chart_points = important_points[important_points["type"] == active_icon_type].copy()
+
+    if active_icon_type != "All":
+        st.markdown(
+            f'<div class="tiny-status">Icon filter: {active_icon_type}</div>',
+            unsafe_allow_html=True
+        )
 
     chart_event = show_candlestick_chart(
         df_candles,
@@ -1625,8 +1632,15 @@ def render_analysis(data):
             matched = candidates.sort_values(["time_diff", "price_diff"]).iloc[0]
             new_point_id = matched["point_id"]
 
+            matched_type = matched["type"]
+            changed = False
             if new_point_id != st.session_state.get("selected_point_id"):
                 st.session_state["selected_point_id"] = new_point_id
+                changed = True
+            if matched_type != st.session_state.get("active_icon_type", "All"):
+                st.session_state["active_icon_type"] = matched_type
+                changed = True
+            if changed:
                 st.rerun()
 
     if len(sr_levels) > 0:
