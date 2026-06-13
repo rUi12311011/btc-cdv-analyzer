@@ -784,9 +784,7 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
     return st.plotly_chart(
         fig,
         use_container_width=True,
-        key="main_chart",
-        on_select="rerun",
-        selection_mode="points"
+        key="main_chart"
     )
 
 
@@ -1573,40 +1571,52 @@ def render_analysis(data):
             important_points["point_id"] == st.session_state["selected_point_id"]
         ].iloc[0]
 
-        st.markdown(
-            f"""
-            <div class="metric-card">
-                <div class="metric-label">Selected Point</div>
-                <div class="metric-value">{selected_point['label']}</div>
-                <div class="metric-label" style="margin-top:6px;">Reason</div>
-                <div style="font-size:11px; line-height:1.45; color:#c8c3b8;">{selected_point['reason']}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
     st.subheader("Coinbase 5m Chart")
 
-    if "active_icon_type" not in st.session_state:
-        st.session_state["active_icon_type"] = "All"
+    # Multi-select icon filter. This is more reliable than Plotly point-click events on Streamlit Cloud.
+    icon_type_options = [
+        "Buy absorption",
+        "Sell absorption",
+        "Buy confirmation",
+        "Sell confirmation",
+        "Short squeeze candidate",
+        "Long squeeze candidate",
+        "High volume",
+    ]
 
-    filter_col1, filter_col2 = st.columns([1, 5])
-    with filter_col1:
-        if st.button("Show All Icons"):
-            st.session_state["active_icon_type"] = "All"
+    icon_type_labels = {
+        "Buy absorption": "△ Buy Abs",
+        "Sell absorption": "▼ Sell Abs",
+        "Buy confirmation": "+ Buy Conf",
+        "Sell confirmation": "− Sell Conf",
+        "Short squeeze candidate": "★ Short Sqz",
+        "Long squeeze candidate": "✳ Long Sqz",
+        "High volume": "◇ High Vol",
+    }
+
+    visible_icon_labels = st.multiselect(
+        "Visible icon types",
+        options=[icon_type_labels[t] for t in icon_type_options],
+        default=[icon_type_labels[t] for t in icon_type_options],
+        help="Select one or more icon types to display. Use this when you want to show only two types, etc."
+    )
+
+    label_to_type = {v: k for k, v in icon_type_labels.items()}
+    visible_icon_types = [label_to_type[label] for label in visible_icon_labels]
 
     chart_points = important_points
-    active_icon_type = st.session_state.get("active_icon_type", "All")
-    if active_icon_type != "All" and len(important_points) > 0:
-        chart_points = important_points[important_points["type"] == active_icon_type].copy()
+    if len(important_points) > 0 and len(visible_icon_types) > 0:
+        chart_points = important_points[important_points["type"].isin(visible_icon_types)].copy()
+    elif len(visible_icon_types) == 0:
+        chart_points = important_points.iloc[0:0].copy()
 
-    if active_icon_type != "All":
+    if len(visible_icon_types) != len(icon_type_options):
         st.markdown(
-            f'<div class="tiny-status">Icon filter: {active_icon_type}</div>',
+            f'<div class="tiny-status">Icon filter: {", ".join(visible_icon_types) if visible_icon_types else "None"}</div>',
             unsafe_allow_html=True
         )
 
-    chart_event = show_candlestick_chart(
+    show_candlestick_chart(
         df_candles,
         product_id,
         important_points=chart_points,
@@ -1614,34 +1624,18 @@ def render_analysis(data):
         sr_levels=sr_levels
     )
 
-    # チャート上の重要ポイントマーカーをクリックした場合、一覧側にも反映
-    if len(important_points) > 0:
-        try:
-            selected_points = chart_event.selection.points
-        except Exception:
-            selected_points = []
-
-        if selected_points:
-            clicked = selected_points[0]
-            clicked_x = pd.Timestamp(clicked.get("x"))
-            clicked_y = float(clicked.get("y"))
-
-            candidates = important_points.copy()
-            candidates["time_diff"] = (candidates["time_5m"] - clicked_x).abs()
-            candidates["price_diff"] = (candidates["spot_price"] - clicked_y).abs()
-            matched = candidates.sort_values(["time_diff", "price_diff"]).iloc[0]
-            new_point_id = matched["point_id"]
-
-            matched_type = matched["type"]
-            changed = False
-            if new_point_id != st.session_state.get("selected_point_id"):
-                st.session_state["selected_point_id"] = new_point_id
-                changed = True
-            if matched_type != st.session_state.get("active_icon_type", "All"):
-                st.session_state["active_icon_type"] = matched_type
-                changed = True
-            if changed:
-                st.rerun()
+    if selected_point is not None:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <div class="metric-label">Selected Point Details</div>
+                <div class="metric-value">{selected_point['label']}</div>
+                <div class="metric-label" style="margin-top:6px;">Reason</div>
+                <div style="font-size:11px; line-height:1.45; color:#c8c3b8;">{selected_point['reason']}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
     if len(sr_levels) > 0:
         st.subheader("POC / Support / Resistance Candidates")
