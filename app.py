@@ -332,6 +332,39 @@ with st.sidebar:
     )
 
     st.markdown("---")
+    st.markdown("### Visible Icons")
+
+    icon_type_options = [
+        "Buy absorption",
+        "Sell absorption",
+        "Buy confirmation",
+        "Sell confirmation",
+        "Short squeeze candidate",
+        "Long squeeze candidate",
+        "High volume",
+    ]
+
+    icon_type_labels = {
+        "Buy absorption": "△ Buy Abs",
+        "Sell absorption": "▼ Sell Abs",
+        "Buy confirmation": "+ Buy Conf",
+        "Sell confirmation": "− Sell Conf",
+        "Short squeeze candidate": "★ Short Sqz",
+        "Long squeeze candidate": "✳ Long Sqz",
+        "High volume": "◇ High Vol",
+    }
+
+    visible_icon_labels = st.multiselect(
+        "Icon Types",
+        options=[icon_type_labels[t] for t in icon_type_options],
+        default=[icon_type_labels[t] for t in icon_type_options],
+        help="Select one or more icon types to display on the chart."
+    )
+
+    label_to_type = {v: k for k, v in icon_type_labels.items()}
+    visible_icon_types = [label_to_type[label] for label in visible_icon_labels]
+
+    st.markdown("---")
     st.markdown("### Confirmation / Sync Rules")
 
     confirm_vol_len = st.number_input(
@@ -716,15 +749,13 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             go.Scatter(
                 x=[selected_time],
                 y=[selected_price],
-                mode="markers+text",
+                mode="markers",
                 marker=dict(
                     size=16,
                     color="#ffffff",
                     symbol="circle-open",
                     line=dict(width=2, color="#c1121f")
                 ),
-                text=["SPOT"],
-                textposition="top center",
                 name="Selected Spot",
                 hoverinfo="skip",
                 hovertemplate=None
@@ -733,20 +764,6 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             col=1
         )
 
-        fig.add_annotation(
-            x=selected_time,
-            y=selected_price,
-            text=selected_label,
-            showarrow=True,
-            arrowhead=2,
-            ax=40,
-            ay=-60,
-            bgcolor="#f2f2f2",
-            bordercolor="#c1121f",
-            font=dict(color="#111111", size=11),
-            row=1,
-            col=1
-        )
 
     fig.update_layout(
         height=780,
@@ -1536,73 +1553,53 @@ def render_analysis(data):
 
         st.subheader("Important Points")
 
-        display_points = important_points.copy()
-        display_points["selected"] = display_points["point_id"].apply(
-            lambda x: "🎯" if x == st.session_state["selected_point_id"] else ""
-        )
+        display_points = important_points.copy().reset_index(drop=True)
+        display_points["Focus"] = display_points["point_id"] == st.session_state["selected_point_id"]
         display_points["time"] = display_points["time_5m"].dt.strftime("%m/%d %H:%M")
 
-        table_event = st.dataframe(
-            display_points[[
-                "selected", "No", "time", "type", "score", "reason",
+        editor_df = display_points[[
+            "Focus", "No", "time", "type", "score", "reason",
+            "open", "high", "low", "close",
+            "volume_BTC", "delta_BTC",
+            "buy_ratio_%", "sell_ratio_%"
+        ]]
+
+        edited_points = st.data_editor(
+            editor_df,
+            use_container_width=True,
+            hide_index=True,
+            disabled=[
+                "No", "time", "type", "score", "reason",
                 "open", "high", "low", "close",
                 "volume_BTC", "delta_BTC",
                 "buy_ratio_%", "sell_ratio_%"
-            ]],
-            use_container_width=True,
-            hide_index=True,
-            on_select="rerun",
-            selection_mode="single-row",
-            key="important_points_table"
+            ],
+            column_config={
+                "Focus": st.column_config.CheckboxColumn(
+                    "Focus",
+                    help="Check one row to update Selected Point Details.",
+                    default=False
+                )
+            },
+            key=f"important_points_editor_{product_id}_{range_start.strftime('%Y%m%d%H%M%S')}_{range_end.strftime('%Y%m%d%H%M%S')}_{len(important_points)}"
         )
 
-        try:
-            selected_rows = table_event.selection.rows
-        except Exception:
-            selected_rows = []
-
-        if selected_rows:
-            row_no = selected_rows[0]
-            new_point_id = important_points.iloc[row_no]["point_id"]
+        checked_rows = edited_points.index[edited_points["Focus"] == True].tolist()
+        if checked_rows:
+            current_rows = display_points.index[display_points["point_id"] == st.session_state["selected_point_id"]].tolist()
+            current_row = current_rows[0] if current_rows else None
+            new_rows = [r for r in checked_rows if r != current_row]
+            chosen_row = new_rows[-1] if new_rows else checked_rows[-1]
+            new_point_id = display_points.iloc[chosen_row]["point_id"]
             if new_point_id != st.session_state["selected_point_id"]:
                 st.session_state["selected_point_id"] = new_point_id
+                st.rerun()
 
         selected_point = important_points[
             important_points["point_id"] == st.session_state["selected_point_id"]
         ].iloc[0]
 
     st.subheader("Coinbase 5m Chart")
-
-    # Multi-select icon filter. This is more reliable than Plotly point-click events on Streamlit Cloud.
-    icon_type_options = [
-        "Buy absorption",
-        "Sell absorption",
-        "Buy confirmation",
-        "Sell confirmation",
-        "Short squeeze candidate",
-        "Long squeeze candidate",
-        "High volume",
-    ]
-
-    icon_type_labels = {
-        "Buy absorption": "△ Buy Abs",
-        "Sell absorption": "▼ Sell Abs",
-        "Buy confirmation": "+ Buy Conf",
-        "Sell confirmation": "− Sell Conf",
-        "Short squeeze candidate": "★ Short Sqz",
-        "Long squeeze candidate": "✳ Long Sqz",
-        "High volume": "◇ High Vol",
-    }
-
-    visible_icon_labels = st.multiselect(
-        "Visible icon types",
-        options=[icon_type_labels[t] for t in icon_type_options],
-        default=[icon_type_labels[t] for t in icon_type_options],
-        help="Select one or more icon types to display. Use this when you want to show only two types, etc."
-    )
-
-    label_to_type = {v: k for k, v in icon_type_labels.items()}
-    visible_icon_types = [label_to_type[label] for label in visible_icon_labels]
 
     chart_points = important_points
     if len(important_points) > 0 and len(visible_icon_types) > 0:
