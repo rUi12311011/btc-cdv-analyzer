@@ -38,8 +38,12 @@ st.markdown(
         border-right: 1px solid #2a2e39;
     }
 
+    [data-testid="stSidebar"] > div:first-child {
+        padding-top: 2.2rem;
+    }
+
     .block-container {
-        padding-top: 1.2rem;
+        padding-top: 3.4rem;
         padding-bottom: 2rem;
         max-width: 1600px;
     }
