@@ -538,6 +538,8 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             decreasing_line_color="#111111",
             increasing_fillcolor="#ffffff",
             decreasing_fillcolor="#111111",
+            increasing_line_width=0.65,
+            decreasing_line_width=0.65,
             name=product_id
         ),
         row=1,
@@ -548,7 +550,7 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
         go.Bar(
             x=df_candles["time"],
             y=df_candles["volume"],
-            marker_color="#9a9a9a",
+            marker_color="#666666",
             name="Volume"
         ),
         row=2,
@@ -557,35 +559,35 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
 
     # 重要ポイントをチャートにマーカー表示
     if important_points is not None and len(important_points) > 0:
-        # Simple monochrome/stencil-like chart icons
+        # Simple stencil-like icons. Shape differences carry the meaning more than color.
         marker_colors = {
-            "Buy absorption": "#ffffff",
-            "Buy confirmation": "#ffffff",
+            "Buy absorption": "#111111",
             "Sell absorption": "#111111",
+            "Buy confirmation": "#111111",
             "Sell confirmation": "#111111",
             "Short squeeze candidate": "#c1121f",
             "Long squeeze candidate": "#c1121f",
-            "High volume": "#8a8a8a"
+            "High volume": "#4f4f4f"
         }
 
         marker_symbols = {
-            "Buy absorption": "triangle-up",
-            "Buy confirmation": "circle",
+            "Buy absorption": "triangle-up-open",
             "Sell absorption": "triangle-down",
-            "Sell confirmation": "x",
+            "Buy confirmation": "cross",
+            "Sell confirmation": "line-ew",
             "Short squeeze candidate": "star",
-            "Long squeeze candidate": "star-diamond",
-            "High volume": "diamond"
+            "Long squeeze candidate": "asterisk",
+            "High volume": "diamond-open"
         }
 
         marker_line_colors = {
             "Buy absorption": "#111111",
+            "Sell absorption": "#111111",
             "Buy confirmation": "#111111",
-            "Sell absorption": "#ffffff",
             "Sell confirmation": "#111111",
-            "Short squeeze candidate": "#111111",
-            "Long squeeze candidate": "#111111",
-            "High volume": "#111111"
+            "Short squeeze candidate": "#c1121f",
+            "Long squeeze candidate": "#c1121f",
+            "High volume": "#4f4f4f"
         }
 
         for point_type, group in important_points.groupby("type"):
@@ -595,10 +597,10 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
                     y=group["spot_price"],
                     mode="markers",
                     marker=dict(
-                        size=12,
+                        size=13,
                         color=marker_colors.get(point_type, "#ffffff"),
                         symbol=marker_symbols.get(point_type, "circle"),
-                        line=dict(width=1.5, color=marker_line_colors.get(point_type, "#111111"))
+                        line=dict(width=1.4, color=marker_line_colors.get(point_type, "#111111"))
                     ),
                     name=point_type,
                     text=group["reason"],
@@ -611,6 +613,41 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
                 row=1,
                 col=1
             )
+
+            # Small deterministic spray dots around each icon for a stencil/spray feel
+            try:
+                price_span = max(float(df_candles["high"].max() - df_candles["low"].min()), 1.0)
+                y_unit = price_span * 0.003
+                spray_offsets = [
+                    (-18, -0.8), (-9, 0.9), (12, -1.1), (21, 0.5)
+                ]
+                spray_x = []
+                spray_y = []
+                for _, g in group.iterrows():
+                    for sec, y_mul in spray_offsets:
+                        spray_x.append(g["time_5m"] + pd.Timedelta(seconds=sec))
+                        spray_y.append(float(g["spot_price"]) + y_unit * y_mul)
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=spray_x,
+                        y=spray_y,
+                        mode="markers",
+                        marker=dict(
+                            size=3,
+                            color=marker_colors.get(point_type, "#111111"),
+                            opacity=0.35,
+                            line=dict(width=0)
+                        ),
+                        showlegend=False,
+                        hoverinfo="skip",
+                        name=f"{point_type} spray"
+                    ),
+                    row=1,
+                    col=1
+                )
+            except Exception:
+                pass
 
     # POC / Support / Resistance Candidatesの水平線
     if sr_levels is not None and len(sr_levels) > 0:
@@ -664,10 +701,10 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
                 y=[selected_price],
                 mode="markers+text",
                 marker=dict(
-                    size=22,
+                    size=16,
                     color="#ffffff",
                     symbol="circle-open",
-                    line=dict(width=3, color="#c1121f")
+                    line=dict(width=2, color="#c1121f")
                 ),
                 text=["SPOT"],
                 textposition="top center",
@@ -698,8 +735,8 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
         xaxis_rangeslider_visible=False,
         title="",
         template="plotly_white",
-        paper_bgcolor="#d9d9d9",
-        plot_bgcolor="#d9d9d9",
+        paper_bgcolor="#9b9b9b",
+        plot_bgcolor="#9b9b9b",
         font=dict(color="#111111"),
         margin=dict(l=20, r=70, t=12, b=120),
         showlegend=True,
@@ -709,20 +746,20 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             y=-0.18,
             xanchor="center",
             x=0.5,
-            bgcolor="rgba(217, 217, 217, 0.95)",
+            bgcolor="rgba(170, 170, 170, 0.95)",
             bordercolor="#111111",
             borderwidth=1
         )
     )
 
     fig.update_xaxes(
-        gridcolor="#b8b8b8",
-        zerolinecolor="#9e9e9e",
+        gridcolor="#7e7e7e",
+        zerolinecolor="#6d6d6d",
         rangeslider_visible=False
     )
 
     fig.update_yaxes(
-        gridcolor="#b8b8b8",
+        gridcolor="#7e7e7e",
         zerolinecolor="#9e9e9e"
     )
 
@@ -1393,6 +1430,32 @@ def render_analysis(data):
     volume_by_price_all = data["volume_by_price_all"]
     side_price_volume_all = data["side_price_volume_all"]
     sr_levels = data["sr_levels"]
+
+    # Old session data may still contain Japanese point labels. Normalize to English.
+    type_rename_map = {
+        "買い吸収": "Buy absorption",
+        "売り吸収": "Sell absorption",
+        "買い確認": "Buy confirmation",
+        "売り確認": "Sell confirmation",
+        "ショートスクイーズ候補": "Short squeeze candidate",
+        "ロングスクイーズ候補": "Long squeeze candidate",
+        "高出来高": "High volume",
+    }
+
+    if important_points is not None and len(important_points) > 0 and "type" in important_points.columns:
+        important_points = important_points.copy()
+        important_points["type"] = important_points["type"].replace(type_rename_map)
+        if "No" not in important_points.columns:
+            important_points["No"] = range(1, len(important_points) + 1)
+        important_points["point_id"] = important_points.apply(
+            lambda r: f"{pd.Timestamp(r['time_5m']).isoformat()}__{r['type']}__{r['No']}",
+            axis=1
+        )
+        important_points["label"] = important_points.apply(
+            lambda r: f"{int(r['No'])}. {pd.Timestamp(r['time_5m']).strftime('%m/%d %H:%M')} | {r['type']} | score {r['score']} | close {r['close']:.2f}",
+            axis=1
+        )
+        data["important_points"] = important_points
 
     # 旧バージョンで保存されたsession_state対策
     # app.py更新直後に古いimportant_pointsが残っているとpoint_idが無くてKeyErrorになるため補完する
