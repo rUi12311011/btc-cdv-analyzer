@@ -164,11 +164,13 @@ st.markdown(
         color: #ffffff;
     }
 
+    /* Streamlit's dataframe already has its own internal border.
+       Avoid adding an extra outer frame that creates a double-border look. */
     [data-testid="stDataFrame"] {
-        background-color: #101012;
-        border: 1px solid #2b2b2f;
-        border-radius: 2px;
-        overflow: hidden;
+        background-color: transparent !important;
+        border: none !important;
+        border-radius: 0 !important;
+        overflow: visible !important;
     }
 
     h1, h2, h3 {
