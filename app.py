@@ -132,6 +132,45 @@ st.markdown(
         font-size: 12px !important;
     }
 
+    /* Streamlit selectbox / BaseWeb layout fix
+       The global input CSS can make the hidden select input/caret visible.
+       Keep the selected text clean and prevent the fake cursor from appearing. */
+    [data-baseweb="select"] {
+        width: 100% !important;
+        font-size: 12px !important;
+    }
+
+    [data-baseweb="select"] > div {
+        background-color: #18181b !important;
+        border: 1px solid #343438 !important;
+        border-radius: 2px !important;
+        min-height: 34px !important;
+        height: 34px !important;
+        display: flex !important;
+        align-items: center !important;
+        box-shadow: none !important;
+    }
+
+    [data-baseweb="select"] input {
+        caret-color: transparent !important;
+        color: transparent !important;
+        background: transparent !important;
+        border: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        min-width: 1px !important;
+        width: 1px !important;
+    }
+
+    [data-baseweb="select"] div {
+        color: #e6e2d9 !important;
+        font-size: 12px !important;
+    }
+
+    [data-baseweb="select"] svg {
+        color: #e6e2d9 !important;
+    }
+
     .stButton > button {
         background-color: #c1121f;
         color: #f4f1ea;
@@ -445,6 +484,15 @@ with st.sidebar:
 
     tv_lookahead_bars_raw = st.text_input("TV Lookahead Bars", value="6")
     tv_lookahead_bars = safe_int_input(tv_lookahead_bars_raw, default=6, min_value=1, max_value=100)
+
+    min_squeeze_confidence_raw = st.text_input("Min Squeeze Confidence %", value="65")
+    min_squeeze_confidence = safe_float_input(min_squeeze_confidence_raw, default=65.0, min_value=0.0, max_value=100.0)
+
+    hide_low_confidence_points = st.checkbox(
+        "Hide low-confidence squeeze points",
+        value=True,
+        help="Short/Long setup・trigger・Tape-confirmed squeezeだけに適用。Support/ResistanceやThin moveは残します。"
+    )
 
     st.caption("TV CSV = 構造検証・母集団 / Coinbase tape = テープ確認。TV CSVだけでTape-confirmedとは断定しません。")
 
@@ -2104,17 +2152,43 @@ def render_analysis(data):
             unsafe_allow_html=True
         )
 
+    # setup / trigger / tape-confirmed が多すぎる時の表示フィルター。
+    # Support / Resistance / Liquidity thin は検証材料なので基本的に残す。
+    squeeze_point_types = {
+        "Short squeeze setup",
+        "Short squeeze trigger",
+        "Long squeeze setup",
+        "Long squeeze trigger",
+        "Tape-confirmed squeeze",
+    }
+    filtered_important_points = important_points.copy()
+    try:
+        if hide_low_confidence_points and len(filtered_important_points) > 0 and "squeeze_confidence" in filtered_important_points.columns:
+            low_conf_mask = (
+                filtered_important_points["type"].isin(squeeze_point_types) &
+                (pd.to_numeric(filtered_important_points["squeeze_confidence"], errors="coerce").fillna(0) < float(min_squeeze_confidence))
+            )
+            filtered_important_points = filtered_important_points[~low_conf_mask].copy()
+    except Exception:
+        pass
+
+    if len(important_points) != len(filtered_important_points):
+        st.markdown(
+            f'<div class="tiny-status">Squeeze filter: confidence >= {float(min_squeeze_confidence):.1f}% / hidden {len(important_points) - len(filtered_important_points)} low-confidence squeeze points</div>',
+            unsafe_allow_html=True
+        )
+
     selected_point = None
 
-    if len(important_points) > 0:
-        valid_ids = important_points["point_id"].tolist()
+    if len(filtered_important_points) > 0:
+        valid_ids = filtered_important_points["point_id"].tolist()
 
         if "selected_point_id" not in st.session_state or st.session_state["selected_point_id"] not in valid_ids:
             st.session_state["selected_point_id"] = valid_ids[0]
 
         st.subheader("Important Points")
 
-        display_points = important_points.copy().reset_index(drop=True)
+        display_points = filtered_important_points.copy().reset_index(drop=True)
         display_points["Focus"] = display_points["point_id"] == st.session_state["selected_point_id"]
         display_points["time"] = display_points["time_5m"].dt.strftime("%m/%d %H:%M")
 
@@ -2143,7 +2217,7 @@ def render_analysis(data):
                     default=False
                 )
             },
-            key=f"important_points_editor_{product_id}_{range_start.strftime('%Y%m%d%H%M%S')}_{range_end.strftime('%Y%m%d%H%M%S')}_{len(important_points)}"
+            key=f"important_points_editor_{product_id}_{range_start.strftime('%Y%m%d%H%M%S')}_{range_end.strftime('%Y%m%d%H%M%S')}_{len(filtered_important_points)}"
         )
 
         checked_rows = edited_points.index[edited_points["Focus"] == True].tolist()
@@ -2157,8 +2231,8 @@ def render_analysis(data):
                 st.session_state["selected_point_id"] = new_point_id
                 st.rerun()
 
-        selected_point = important_points[
-            important_points["point_id"] == st.session_state["selected_point_id"]
+        selected_point = filtered_important_points[
+            filtered_important_points["point_id"] == st.session_state["selected_point_id"]
         ].iloc[0]
 
         auto_detail_types = {
@@ -2176,11 +2250,11 @@ def render_analysis(data):
 
     st.subheader("Coinbase 5m Chart")
 
-    chart_points = important_points
-    if len(important_points) > 0 and len(visible_icon_types) > 0:
-        chart_points = important_points[important_points["type"].isin(visible_icon_types)].copy()
+    chart_points = filtered_important_points
+    if len(filtered_important_points) > 0 and len(visible_icon_types) > 0:
+        chart_points = filtered_important_points[filtered_important_points["type"].isin(visible_icon_types)].copy()
     elif len(visible_icon_types) == 0:
-        chart_points = important_points.iloc[0:0].copy()
+        chart_points = filtered_important_points.iloc[0:0].copy()
 
     if len(visible_icon_types) != len(icon_type_options):
         st.markdown(
