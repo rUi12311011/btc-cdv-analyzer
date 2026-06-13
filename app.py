@@ -194,9 +194,9 @@ st.markdown(
     """
     <div class="tv-header">
         <div>
-            <div class="tv-title">BTC CDV / Absorption Analyzer</div>
+            <div class="tv-title">Signal Flow Validator</div>
             <div class="tv-subtitle">
-                Coinbase API × 5分足CDV × 吸収判定 × 防衛ライン確認
+                TradingViewシグナル検証 × Coinbase実約定CVD × 吸収/POC/スクイーズ確認
             </div>
         </div>
         <div class="tv-badge">LIVE API MODE</div>
@@ -238,6 +238,40 @@ with st.sidebar:
             2: "0.01ドル刻み"
         }[x]
     )
+
+    st.markdown("---")
+    st.markdown("### 確認足 / Sync条件")
+
+    confirm_vol_len = st.number_input(
+        "出来高平均本数",
+        min_value=5,
+        max_value=200,
+        value=20,
+        step=1
+    )
+
+    confirm_vol_mult = st.number_input(
+        "出来高急増倍率",
+        min_value=0.5,
+        max_value=10.0,
+        value=1.5,
+        step=0.1
+    )
+
+    confirm_lookback = st.number_input(
+        "CVD/価格 方向判定本数",
+        min_value=1,
+        max_value=50,
+        value=3,
+        step=1
+    )
+
+    confirm_require_full_window = st.checkbox(
+        "平均本数が揃ってから判定",
+        value=True
+    )
+
+    st.caption("TradingViewシグナル検証用：出来高急増 + 価格/CVDのLookback方向一致 + 現在足の価格/CVDが同方向")
 
     st.markdown("---")
 
@@ -598,7 +632,7 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
 # 5分足CDV集計
 # =========================================================
 
-def make_5m_summary(df_range):
+def make_5m_summary(df_range, confirm_vol_len=20, confirm_vol_mult=1.5, confirm_lookback=3, confirm_require_full_window=True):
     df_range = df_range.copy()
 
     df_range["time_5m"] = df_range["time_jst"].dt.floor("5min")
@@ -652,28 +686,98 @@ def make_5m_summary(df_range):
     summary_5m["candle_move"] = summary_5m["close"] - summary_5m["open"]
     summary_5m["range"] = summary_5m["high"] - summary_5m["low"]
 
-    # 売り成行が多いのに陽線 or 下がらない = 買い吸収候補
+    # 吸収判定用
+    # 吸収 = 大きいデルタが出ているのに、実体が小さい / 価格が進んでいない状態
+    summary_5m["body_abs"] = summary_5m["candle_move"].abs()
+    summary_5m["delta_abs"] = summary_5m["delta_BTC"].abs()
+    summary_5m["delta_strength"] = summary_5m["delta_abs"] / summary_5m["volume_BTC"]
+    summary_5m["body_to_range"] = summary_5m["body_abs"] / summary_5m["range"].replace(0, pd.NA)
+
+    # 価格が動いていない判定：実体が小さい
+    # 15ドル以下、またはその足の値幅の35%以下なら「進みが弱い」と見る
+    summary_5m["absorption_body_limit"] = (summary_5m["range"] * 0.35).clip(lower=15)
+    summary_5m["price_not_moved"] = summary_5m["body_abs"] <= summary_5m["absorption_body_limit"]
+
+    # 選択期間内で相対的に大きいデルタを抽出
+    delta_threshold = summary_5m["delta_abs"].quantile(0.60)
+
+    # 売りデルタが大きいのに価格が下に進まない = 買い吸収候補
     summary_5m["buy_absorption_candidate"] = (
-        (summary_5m["sell_ratio_%"] >= 60) &
-        (summary_5m["candle_move"] >= 0)
+        (summary_5m["delta_BTC"] <= -delta_threshold) &
+        (summary_5m["delta_strength"] >= 0.25) &
+        (summary_5m["price_not_moved"])
     )
 
-    # 買い成行が多い陽線 = 買い確認足
+    # 確認足判定
+    # PineのbullSync / bearSyncに近い条件
+    # volSurge + priceLookback方向 + CVDLookback方向 + 価格足方向 + CVD足方向
+    confirm_min_periods = int(confirm_vol_len) if confirm_require_full_window else max(3, int(confirm_vol_len) // 4)
+    confirm_lookback = int(confirm_lookback)
+
+    summary_5m["confirm_vol_avg"] = (
+        summary_5m["volume_BTC"]
+        .rolling(int(confirm_vol_len), min_periods=confirm_min_periods)
+        .mean()
+        .shift(1)
+    )
+
+    summary_5m["confirm_vol_mult_actual"] = (
+        summary_5m["volume_BTC"] / summary_5m["confirm_vol_avg"]
+    )
+
+    summary_5m["confirm_volume_ok"] = (
+        summary_5m["confirm_vol_avg"].notna() &
+        (summary_5m["volume_BTC"] >= summary_5m["confirm_vol_avg"] * float(confirm_vol_mult))
+    )
+
+    # Coinbase実約定ベースCVD
+    # 買い成行っぽい - 売り成行っぽい の5分足デルタを累積
+    summary_5m["cumulative_delta_BTC"] = summary_5m["delta_BTC"].cumsum()
+
+    summary_5m["price_up_lookback"] = summary_5m["close"] > summary_5m["close"].shift(confirm_lookback)
+    summary_5m["price_down_lookback"] = summary_5m["close"] < summary_5m["close"].shift(confirm_lookback)
+
+    summary_5m["cvd_up_lookback"] = summary_5m["cumulative_delta_BTC"] > summary_5m["cumulative_delta_BTC"].shift(confirm_lookback)
+    summary_5m["cvd_down_lookback"] = summary_5m["cumulative_delta_BTC"] < summary_5m["cumulative_delta_BTC"].shift(confirm_lookback)
+
+    summary_5m["price_bull_candle"] = summary_5m["candle_move"] > 0
+    summary_5m["price_bear_candle"] = summary_5m["candle_move"] < 0
+
+    # CVD candleは5分足内の実約定デルタ方向
+    summary_5m["cvd_bull_candle"] = summary_5m["delta_BTC"] > 0
+    summary_5m["cvd_bear_candle"] = summary_5m["delta_BTC"] < 0
+
+    summary_5m["delta_price_same_up"] = (
+        summary_5m["cvd_bull_candle"] &
+        summary_5m["price_bull_candle"]
+    )
+
+    summary_5m["delta_price_same_down"] = (
+        summary_5m["cvd_bear_candle"] &
+        summary_5m["price_bear_candle"]
+    )
+
     summary_5m["bullish_confirmation"] = (
-        (summary_5m["buy_ratio_%"] >= 65) &
-        (summary_5m["candle_move"] > 0)
+        summary_5m["confirm_volume_ok"] &
+        summary_5m["price_up_lookback"] &
+        summary_5m["cvd_up_lookback"] &
+        summary_5m["price_bull_candle"] &
+        summary_5m["cvd_bull_candle"]
     )
 
-    # 買い成行が多いのに陰線 or 上がらない = 売り吸収候補
+    # 買いデルタが大きいのに価格が上に進まない = 売り吸収候補
     summary_5m["sell_absorption_candidate"] = (
-        (summary_5m["buy_ratio_%"] >= 60) &
-        (summary_5m["candle_move"] <= 0)
+        (summary_5m["delta_BTC"] >= delta_threshold) &
+        (summary_5m["delta_strength"] >= 0.25) &
+        (summary_5m["price_not_moved"])
     )
 
-    # 売り成行が多い陰線 = 売り確認足
     summary_5m["bearish_confirmation"] = (
-        (summary_5m["sell_ratio_%"] >= 65) &
-        (summary_5m["candle_move"] < 0)
+        summary_5m["confirm_volume_ok"] &
+        summary_5m["price_down_lookback"] &
+        summary_5m["cvd_down_lookback"] &
+        summary_5m["price_bear_candle"] &
+        summary_5m["cvd_bear_candle"]
     )
 
     summary_5m["lower_wick"] = (
@@ -801,45 +905,53 @@ def detect_important_points(summary_5m):
             "spot_price": row["close"],
             "volume_BTC": row["volume_BTC"],
             "delta_BTC": row["delta_BTC"],
+            "cumulative_delta_BTC": row.get("cumulative_delta_BTC", pd.NA),
             "buy_ratio_%": row["buy_ratio_%"],
             "sell_ratio_%": row["sell_ratio_%"],
             "candle_move": row["candle_move"],
+            "delta_strength": row.get("delta_strength", abs(row["delta_BTC"]) / row["volume_BTC"] if row["volume_BTC"] else 0),
+            "price_not_moved": row.get("price_not_moved", False),
+            "confirm_vol_avg": row.get("confirm_vol_avg", pd.NA),
+            "confirm_vol_mult_actual": row.get("confirm_vol_mult_actual", pd.NA),
+            "confirm_volume_ok": row.get("confirm_volume_ok", False),
         }
 
         if row["buy_absorption_candidate"]:
-            score = 80 + min(15, max(0, row["sell_ratio_%"] - 60) / 2)
+            score = 80 + min(15, row.get("delta_strength", 0) * 30)
             rows.append({
                 **base,
                 "type": "買い吸収",
                 "score": round(score, 1),
-                "reason": f"売り成行{row['sell_ratio_%']:.1f}%なのにローソクが下がらない/陽線。買い吸収候補。"
+                "reason": f"売りデルタ{row['delta_BTC']:.2f} BTCに対して実体{row['candle_move']:.2f}ドル。売りが出ているのに価格が進まないため買い吸収候補。"
             })
 
         if row["bullish_confirmation"]:
-            score = 70 + min(20, max(0, row["buy_ratio_%"] - 65) / 2)
+            mult = row.get("confirm_vol_mult_actual", 0)
+            score = 78 + min(18, max(0, float(mult) - 2.0) * 6)
             rows.append({
                 **base,
                 "type": "買い確認",
                 "score": round(score, 1),
-                "reason": f"買い成行{row['buy_ratio_%']:.1f}%で陽線。上方向の確認足候補。"
+                "reason": f"出来高{row['volume_BTC']:.2f} BTCが直近平均の{mult:.2f}倍。価格/CVDのLookback方向が上向き、かつデルタ+{row['delta_BTC']:.2f} BTC・値幅+{row['candle_move']:.2f}ドルで順行。買い確認。"
             })
 
         if row["sell_absorption_candidate"]:
-            score = 80 + min(15, max(0, row["buy_ratio_%"] - 60) / 2)
+            score = 80 + min(15, row.get("delta_strength", 0) * 30)
             rows.append({
                 **base,
                 "type": "売り吸収",
                 "score": round(score, 1),
-                "reason": f"買い成行{row['buy_ratio_%']:.1f}%なのに上がらない/陰線。売り吸収候補。"
+                "reason": f"買いデルタ+{row['delta_BTC']:.2f} BTCに対して実体{row['candle_move']:.2f}ドル。買いが出ているのに価格が進まないため売り吸収候補。"
             })
 
         if row["bearish_confirmation"]:
-            score = 70 + min(20, max(0, row["sell_ratio_%"] - 65) / 2)
+            mult = row.get("confirm_vol_mult_actual", 0)
+            score = 78 + min(18, max(0, float(mult) - 2.0) * 6)
             rows.append({
                 **base,
                 "type": "売り確認",
                 "score": round(score, 1),
-                "reason": f"売り成行{row['sell_ratio_%']:.1f}%で陰線。下方向の確認足候補。"
+                "reason": f"出来高{row['volume_BTC']:.2f} BTCが直近平均の{mult:.2f}倍。価格/CVDのLookback方向が下向き、かつデルタ{row['delta_BTC']:.2f} BTC・値幅{row['candle_move']:.2f}ドルで順行。売り確認。"
             })
 
         if row["volume_BTC"] >= vol_threshold:
@@ -911,8 +1023,7 @@ def detect_important_points(summary_5m):
 
         # ショートスクイーズ候補：直前に売り圧があり、その後に買い確認＋直近高値上抜け
         if (
-            row["buy_ratio_%"] >= 65 and
-            row["candle_move"] > 0 and
+            row.get("bullish_confirmation", False) and
             row["high"] > previous_high and
             recent_sell_pressure
         ):
@@ -937,8 +1048,7 @@ def detect_important_points(summary_5m):
         if (
             prev["sell_ratio_%"] >= 70 and
             prev["candle_move"] <= 0 and
-            row["buy_ratio_%"] >= 65 and
-            row["candle_move"] > 0 and
+            row.get("bullish_confirmation", False) and
             row["close"] > prev["open"]
         ):
             rows.append({
@@ -960,8 +1070,7 @@ def detect_important_points(summary_5m):
 
         # ロングスクイーズ候補：直近に買い圧があり、その後に売り確認＋直近安値割れ
         if (
-            row["sell_ratio_%"] >= 65 and
-            row["candle_move"] < 0 and
+            row.get("bearish_confirmation", False) and
             row["low"] < previous_low and
             recent_buy_pressure
         ):
@@ -1524,7 +1633,13 @@ if run:
             st.error("約定データが取得できませんでした。")
             st.stop()
 
-        summary_5m = make_5m_summary(df_range)
+        summary_5m = make_5m_summary(
+            df_range,
+            confirm_vol_len=int(confirm_vol_len),
+            confirm_vol_mult=float(confirm_vol_mult),
+            confirm_lookback=int(confirm_lookback),
+            confirm_require_full_window=bool(confirm_require_full_window)
+        )
         important_points = detect_important_points(summary_5m)
 
         latest = summary_5m.tail(1).iloc[0]
@@ -1548,6 +1663,12 @@ if run:
             "volume_by_price_all": volume_by_price_all,
             "side_price_volume_all": side_price_volume_all,
             "sr_levels": sr_levels,
+            "confirm_settings": {
+                "confirm_vol_len": int(confirm_vol_len),
+                "confirm_vol_mult": float(confirm_vol_mult),
+                "confirm_lookback": int(confirm_lookback),
+                "confirm_require_full_window": bool(confirm_require_full_window),
+            },
         }
 
     st.success("解析完了。重要ポイントの選択は再取得なしで切り替えできます。")
