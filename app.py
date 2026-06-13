@@ -434,6 +434,21 @@ with st.sidebar:
     st.caption("TradingView signal validation: volume surge + price/CVD lookback alignment + current price/CVD candle alignment")
 
     st.markdown("---")
+    st.markdown("### TradingView CSV Baseline")
+
+    tv_csv_files = st.file_uploader(
+        "TradingView CSV files",
+        type=["csv"],
+        accept_multiple_files=True,
+        help="確率検証用の母集団。TradingViewの吸収 / Sync / Break履歴CSVをアップロードします。"
+    )
+
+    tv_lookahead_bars_raw = st.text_input("TV Lookahead Bars", value="6")
+    tv_lookahead_bars = safe_int_input(tv_lookahead_bars_raw, default=6, min_value=1, max_value=100)
+
+    st.caption("TV CSV = 構造検証・母集団 / Coinbase tape = テープ確認。TV CSVだけでTape-confirmedとは断定しません。")
+
+    st.markdown("---")
 
     run = st.button("Run Analysis")
 
@@ -1204,11 +1219,261 @@ def calculate_volume_profile_levels(df_range, current_price, price_round_digit, 
     return volume_by_price_all, side_price_volume_all, sr_levels
 
 
+
+# =========================================================
+# TradingView CSV 確率検証ベースライン
+# =========================================================
+
+def _tv_bool_signal(df, candidate_cols):
+    """TradingView CSVのplot/plotshape列をbool化する。列が無ければFalse。"""
+    sig = pd.Series(False, index=df.index)
+    for col in candidate_cols:
+        if col in df.columns:
+            vals = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            sig = sig | (vals != 0)
+    return sig
+
+
+def _normalize_tv_csv(uploaded_file):
+    """TradingView CSVを確率検証用に標準化する。"""
+    uploaded_file.seek(0)
+    df = pd.read_csv(uploaded_file)
+    df.columns = [str(c).strip() for c in df.columns]
+
+    # TradingView CSVは time がUNIX秒のことが多い。文字列日時にも一応対応。
+    if "time" in df.columns:
+        raw_time = df["time"]
+        numeric_time = pd.to_numeric(raw_time, errors="coerce")
+        if numeric_time.notna().mean() > 0.8:
+            df["time_jst"] = pd.to_datetime(numeric_time, unit="s", utc=True).dt.tz_convert("Asia/Tokyo")
+        else:
+            df["time_jst"] = pd.to_datetime(raw_time, errors="coerce", utc=True).dt.tz_convert("Asia/Tokyo")
+    else:
+        df["time_jst"] = pd.NaT
+
+    for col in ["open", "high", "low", "close", "Volume", "ATR"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # 列名はTradingViewエクスポートで微妙に変わることがあるため候補を広めに見る。
+    df["tv_sell_absorption"] = _tv_bool_signal(df, [
+        "Sell Absorption XL", "Sell Absorption L", "Sell Absorption M", "Sell Absorption S",
+        "Sell Absorption", "sellAbsorption"
+    ])
+    df["tv_buy_absorption"] = _tv_bool_signal(df, [
+        "Buy Absorption XL", "Buy Absorption L", "Buy Absorption M", "Buy Absorption S",
+        "Buy Absorption", "buyAbsorption"
+    ])
+    df["tv_bull_sync"] = _tv_bool_signal(df, ["Bull Sync", "bullSync"])
+    df["tv_bear_sync"] = _tv_bool_signal(df, ["Bear Sync", "bearSync"])
+    df["tv_liquidity_thin"] = _tv_bool_signal(df, ["Liquidity Thin", "liquidityThin"])
+    df["tv_break_up"] = _tv_bool_signal(df, ["Break Up", "breakUpConfirmed"])
+    df["tv_break_down"] = _tv_bool_signal(df, ["Break Down", "breakDownConfirmed"])
+    df["tv_long_score"] = _tv_bool_signal(df, ["LONG Score Label", "LONG Entry Score", "L5+"])
+    df["tv_short_score"] = _tv_bool_signal(df, ["SHORT Score Label", "SHORT Entry Score", "S5+"])
+
+    return df
+
+
+def analyze_tradingview_probability(tv_csv_files, lookahead_bars=6):
+    """TradingView CSVから、吸収がブレイク/維持に発展した割合を作る。
+
+    これは構造上のHistorical Probabilityであり、Tape-confirmed判定ではない。
+    """
+    if not tv_csv_files:
+        return {
+            "stats_table": pd.DataFrame(),
+            "events_table": pd.DataFrame(),
+            "lookup": {},
+            "source_count": 0,
+            "note": "TradingView CSV未入力"
+        }
+
+    all_events = []
+    source_names = []
+
+    for f in tv_csv_files:
+        try:
+            df = _normalize_tv_csv(f)
+        except Exception as e:
+            st.warning(f"TradingView CSV読み込み失敗: {getattr(f, 'name', 'unknown')} / {e}")
+            continue
+
+        if len(df) == 0 or not {"open", "high", "low", "close"}.issubset(df.columns):
+            st.warning(f"TradingView CSVにOHLC列が不足しています: {getattr(f, 'name', 'unknown')}")
+            continue
+
+        df = df.reset_index(drop=True)
+        source_name = getattr(f, "name", "uploaded_csv")
+        source_names.append(source_name)
+
+        for i, row in df.iterrows():
+            future = df.iloc[i+1:i+1+int(lookahead_bars)]
+            if len(future) == 0:
+                continue
+
+            high = float(row["high"])
+            low = float(row["low"])
+            close = float(row["close"])
+            rng = max(high - low, 0.0)
+            atr = float(row["ATR"]) if "ATR" in df.columns and pd.notna(row.get("ATR", pd.NA)) else rng
+            # 銘柄/時間足に依存しすぎないよう、最低幅は設けず足レンジ/ATR基準で見る。
+            break_buffer = max(rng * 0.03, atr * 0.02, 0.0)
+
+            # sell absorption = 成行売りが吸収された可能性。Support候補/Short squeeze構造の母集団。
+            if bool(row.get("tv_sell_absorption", False)):
+                outcome = "support_hold"
+                trigger_time = pd.NaT
+                trigger_close = pd.NA
+                evidence = "吸収後、Lookahead内で明確なブレイクなし。"
+                for _, fut in future.iterrows():
+                    if float(fut["close"]) > high + break_buffer:
+                        trigger_time = fut.get("time_jst", pd.NaT)
+                        trigger_close = float(fut["close"])
+                        if bool(fut.get("tv_bull_sync", False)) or bool(fut.get("tv_break_up", False)) or bool(fut.get("tv_long_score", False)):
+                            outcome = "short_squeeze_proxy"
+                            evidence = "sell吸収後に高値上抜け + Bull Sync/Break Up/LONG Score。"
+                        else:
+                            outcome = "up_break_without_sync"
+                            evidence = "sell吸収後に高値上抜け。ただしSync/Break確認は弱い。"
+                        break
+                    if float(fut["close"]) < low - break_buffer:
+                        trigger_time = fut.get("time_jst", pd.NaT)
+                        trigger_close = float(fut["close"])
+                        outcome = "support_failed"
+                        evidence = "sell吸収後に安値を下抜け。Support候補失敗。"
+                        break
+
+                all_events.append({
+                    "source_file": source_name,
+                    "time_jst": row.get("time_jst", pd.NaT),
+                    "setup_type": "Short squeeze setup / Support candidate",
+                    "absorption_kind": "sell_absorption",
+                    "absorption_high": high,
+                    "absorption_low": low,
+                    "close": close,
+                    "outcome": outcome,
+                    "trigger_time_jst": trigger_time,
+                    "trigger_close": trigger_close,
+                    "lookahead_bars": int(lookahead_bars),
+                    "evidence": evidence,
+                })
+
+            # buy absorption = 成行買いが吸収された可能性。Resistance候補/Long squeeze構造の母集団。
+            if bool(row.get("tv_buy_absorption", False)):
+                outcome = "resistance_hold"
+                trigger_time = pd.NaT
+                trigger_close = pd.NA
+                evidence = "吸収後、Lookahead内で明確なブレイクなし。"
+                for _, fut in future.iterrows():
+                    if float(fut["close"]) < low - break_buffer:
+                        trigger_time = fut.get("time_jst", pd.NaT)
+                        trigger_close = float(fut["close"])
+                        if bool(fut.get("tv_bear_sync", False)) or bool(fut.get("tv_break_down", False)) or bool(fut.get("tv_short_score", False)):
+                            outcome = "long_squeeze_proxy"
+                            evidence = "buy吸収後に安値下抜け + Bear Sync/Break Down/SHORT Score。"
+                        else:
+                            outcome = "down_break_without_sync"
+                            evidence = "buy吸収後に安値下抜け。ただしSync/Break確認は弱い。"
+                        break
+                    if float(fut["close"]) > high + break_buffer:
+                        trigger_time = fut.get("time_jst", pd.NaT)
+                        trigger_close = float(fut["close"])
+                        outcome = "resistance_failed"
+                        evidence = "buy吸収後に高値を上抜け。Resistance候補失敗。"
+                        break
+
+                all_events.append({
+                    "source_file": source_name,
+                    "time_jst": row.get("time_jst", pd.NaT),
+                    "setup_type": "Long squeeze setup / Resistance candidate",
+                    "absorption_kind": "buy_absorption",
+                    "absorption_high": high,
+                    "absorption_low": low,
+                    "close": close,
+                    "outcome": outcome,
+                    "trigger_time_jst": trigger_time,
+                    "trigger_close": trigger_close,
+                    "lookahead_bars": int(lookahead_bars),
+                    "evidence": evidence,
+                })
+
+    events = pd.DataFrame(all_events)
+    if len(events) == 0:
+        return {
+            "stats_table": pd.DataFrame(),
+            "events_table": events,
+            "lookup": {},
+            "source_count": len(source_names),
+            "note": "吸収イベントが見つかりませんでした。"
+        }
+
+    stats_rows = []
+    lookup = {}
+    groups = {
+        "short_squeeze_setup": {
+            "label": "Short squeeze setup / Support candidate",
+            "squeeze_outcome": "short_squeeze_proxy",
+            "hold_outcome": "support_hold",
+            "failed_outcome": "support_failed",
+        },
+        "long_squeeze_setup": {
+            "label": "Long squeeze setup / Resistance candidate",
+            "squeeze_outcome": "long_squeeze_proxy",
+            "hold_outcome": "resistance_hold",
+            "failed_outcome": "resistance_failed",
+        },
+    }
+
+    for key, cfg in groups.items():
+        sub = events[events["setup_type"] == cfg["label"]]
+        total = len(sub)
+        if total == 0:
+            prob = pd.NA
+            hold = pd.NA
+            failed = pd.NA
+            break_any = pd.NA
+        else:
+            squeeze_count = int((sub["outcome"] == cfg["squeeze_outcome"]).sum())
+            hold_count = int((sub["outcome"] == cfg["hold_outcome"]).sum())
+            failed_count = int((sub["outcome"] == cfg["failed_outcome"]).sum())
+            break_count = int(sub["outcome"].isin([
+                cfg["squeeze_outcome"], "up_break_without_sync", "down_break_without_sync"
+            ]).sum())
+            prob = squeeze_count / total * 100
+            hold = hold_count / total * 100
+            failed = failed_count / total * 100
+            break_any = break_count / total * 100
+            lookup[key] = prob
+
+        stats_rows.append({
+            "setup_key": key,
+            "setup_type": cfg["label"],
+            "total_setups": total,
+            "squeeze_proxy_%": round(prob, 1) if pd.notna(prob) else pd.NA,
+            "any_break_%": round(break_any, 1) if pd.notna(break_any) else pd.NA,
+            "support_or_resistance_hold_%": round(hold, 1) if pd.notna(hold) else pd.NA,
+            "failed_%": round(failed, 1) if pd.notna(failed) else pd.NA,
+            "lookahead_bars": int(lookahead_bars),
+            "source_files": len(set(events["source_file"])),
+            "note": "TradingView構造CSV由来。Tape-confirmedではない。"
+        })
+
+    stats = pd.DataFrame(stats_rows)
+    return {
+        "stats_table": stats,
+        "events_table": events,
+        "lookup": lookup,
+        "source_count": len(source_names),
+        "note": "Historical Probability = TradingView CSVの構造検証。Coinbase tape確認とは別。"
+    }
+
+
 # =========================================================
 # 重要ポイント自動抽出
 # =========================================================
 
-def detect_important_points(summary_5m):
+def detect_important_points(summary_5m, tv_probability_stats=None):
     """Absorption-first classifier.
 
     This app is not an entry engine. It classifies whether an absorption area later behaves as
@@ -1218,6 +1483,26 @@ def detect_important_points(summary_5m):
 
     if summary_5m is None or len(summary_5m) == 0:
         return pd.DataFrame()
+
+    historical_lookup = {}
+    if isinstance(tv_probability_stats, dict):
+        historical_lookup = tv_probability_stats.get("lookup", {}) or {}
+
+    def hist_prob_for(point_type):
+        if point_type in ["Short squeeze setup", "Short squeeze trigger", "Tape-confirmed squeeze"]:
+            return historical_lookup.get("short_squeeze_setup", pd.NA)
+        if point_type in ["Long squeeze setup", "Long squeeze trigger"]:
+            return historical_lookup.get("long_squeeze_setup", pd.NA)
+        return pd.NA
+
+    def blend_confidence(current_confidence, hist_prob):
+        try:
+            if pd.isna(hist_prob):
+                return float(current_confidence)
+            # 現在のテープ/構造スコアを主、TV母集団の実測値を補助として合成。
+            return float(current_confidence) * 0.65 + float(hist_prob) * 0.35
+        except Exception:
+            return float(current_confidence)
 
     df = summary_5m.copy().reset_index()
     vol_threshold = df["volume_BTC"].quantile(0.80)
@@ -1263,6 +1548,8 @@ def detect_important_points(summary_5m):
         base = base_from_row(row)
         if spot_price is not None:
             base["spot_price"] = spot_price
+        historical_probability = hist_prob_for(point_type)
+        adjusted_confidence = blend_confidence(squeeze_confidence, historical_probability)
         base.update({
             "type": point_type,
             "score": round(float(score), 1),
@@ -1273,7 +1560,8 @@ def detect_important_points(summary_5m):
             "invalid_level": invalid_level,
             "support_or_resistance_status": status,
             "tape_score": round(float(tape_score), 1),
-            "squeeze_confidence": round(float(squeeze_confidence), 1),
+            "squeeze_confidence": round(float(adjusted_confidence), 1),
+            "historical_probability_%": round(float(historical_probability), 1) if pd.notna(historical_probability) else pd.NA,
             "memo": memo,
         })
         rows.append(base)
@@ -1307,8 +1595,19 @@ def detect_important_points(summary_5m):
         if bool(row.get("buy_absorption_candidate", False)):
             absorption_high = row["high"]
             absorption_low = row["low"]
-            future_up = future[future["close"] > absorption_high]
-            future_down = future[future["close"] < absorption_low]
+            break_buffer = max(float(row.get("range", 0)) * 0.03, 5.0)
+            future_up = future[
+                (future["close"] > absorption_high + break_buffer) &
+                (future["delta_BTC"] > 0) &
+                (future["buy_ratio_%"] >= 55) &
+                (future["candle_move"] > 0)
+            ]
+            future_down = future[
+                (future["close"] < absorption_low - break_buffer) &
+                (future["delta_BTC"] < 0) &
+                (future["sell_ratio_%"] >= 55) &
+                (future["candle_move"] < 0)
+            ]
 
             setup_tape = tape_score_for(row, "up")
             setup_confidence = min(75, 35 + setup_tape * 0.35)
@@ -1318,7 +1617,7 @@ def detect_important_points(summary_5m):
                 score=82,
                 reason=(
                     f"sell吸収を確認。sell delta {row['delta_BTC']:.2f} BTC に対して価格が下に進んでいない。"
-                    f"吸収足高値 {absorption_high:.2f} 上抜けでShort squeeze trigger候補。"
+                    f"吸収足高値 {absorption_high:.2f} を明確に上抜け、かつbuy delta優勢ならShort squeeze trigger候補。"
                 ),
                 absorption_high=absorption_high,
                 absorption_low=absorption_low,
@@ -1396,8 +1695,19 @@ def detect_important_points(summary_5m):
         if bool(row.get("sell_absorption_candidate", False)):
             absorption_high = row["high"]
             absorption_low = row["low"]
-            future_down = future[future["close"] < absorption_low]
-            future_up = future[future["close"] > absorption_high]
+            break_buffer = max(float(row.get("range", 0)) * 0.03, 5.0)
+            future_down = future[
+                (future["close"] < absorption_low - break_buffer) &
+                (future["delta_BTC"] < 0) &
+                (future["sell_ratio_%"] >= 55) &
+                (future["candle_move"] < 0)
+            ]
+            future_up = future[
+                (future["close"] > absorption_high + break_buffer) &
+                (future["delta_BTC"] > 0) &
+                (future["buy_ratio_%"] >= 55) &
+                (future["candle_move"] > 0)
+            ]
 
             setup_tape = tape_score_for(row, "down")
             setup_confidence = min(75, 35 + setup_tape * 0.35)
@@ -1407,7 +1717,7 @@ def detect_important_points(summary_5m):
                 score=82,
                 reason=(
                     f"buy吸収を確認。buy delta +{row['delta_BTC']:.2f} BTC に対して価格が上に進んでいない。"
-                    f"吸収足安値 {absorption_low:.2f} 下抜けでLong squeeze trigger候補。"
+                    f"吸収足安値 {absorption_low:.2f} を明確に下抜け、かつsell delta優勢ならLong squeeze trigger候補。"
                 ),
                 absorption_high=absorption_high,
                 absorption_low=absorption_low,
@@ -1729,6 +2039,7 @@ def render_analysis(data):
     volume_by_price_all = data["volume_by_price_all"]
     side_price_volume_all = data["side_price_volume_all"]
     sr_levels = data["sr_levels"]
+    tv_probability_stats = data.get("tv_probability_stats", {}) or {}
 
     # Old session data may still contain Japanese point labels. Normalize to English.
     type_rename_map = {
@@ -1778,6 +2089,21 @@ def render_analysis(data):
         unsafe_allow_html=True
     )
 
+    # TradingView CSVの構造検証ベースライン。Tape-confirmedとは別枠で表示する。
+    stats_table = tv_probability_stats.get("stats_table", pd.DataFrame()) if isinstance(tv_probability_stats, dict) else pd.DataFrame()
+    events_table = tv_probability_stats.get("events_table", pd.DataFrame()) if isinstance(tv_probability_stats, dict) else pd.DataFrame()
+    if stats_table is not None and len(stats_table) > 0:
+        st.subheader("TradingView CSV Probability Baseline")
+        st.caption("Historical ProbabilityはTradingView CSV由来の構造確率です。Coinbase tapeによるTape-confirmed判定ではありません。")
+        st.dataframe(stats_table, use_container_width=True, hide_index=True)
+        with st.expander("TradingView CSV absorption events", expanded=False):
+            st.dataframe(events_table.tail(300), use_container_width=True, hide_index=True)
+    else:
+        st.markdown(
+            '<div class="tiny-status">TradingView CSV baseline: 未入力。Squeeze Confidenceは現在条件ベースのスコアです。</div>',
+            unsafe_allow_html=True
+        )
+
     selected_point = None
 
     if len(important_points) > 0:
@@ -1794,7 +2120,7 @@ def render_analysis(data):
 
         editor_columns = [
             "Focus", "No", "time", "type", "score", "reason",
-            "support_or_resistance_status", "squeeze_confidence", "tape_score",
+            "support_or_resistance_status", "squeeze_confidence", "historical_probability_%", "tape_score",
             "absorption_high", "absorption_low", "break_level", "invalid_level",
             "price_impact_per_BTC", "liquidity_thin_score", "delta_impact_score",
             "same_side_streak", "large_trade_count", "memo",
@@ -1872,13 +2198,17 @@ def render_analysis(data):
     )
 
     if selected_point is not None:
+        hist_prob = selected_point.get("historical_probability_%", pd.NA)
+        hist_prob_text = "N/A" if pd.isna(hist_prob) else f"{float(hist_prob):.1f}%"
         st.markdown(
             f"""
             <div class="metric-card">
                 <div class="metric-label">Selected Point Details</div>
                 <div class="metric-value">{selected_point['label']}</div>
-                <div class="metric-label" style="margin-top:6px;">Squeeze Probability</div>
+                <div class="metric-label" style="margin-top:6px;">Squeeze Confidence</div>
                 <div class="metric-value">{float(selected_point.get('squeeze_confidence', 0)):.1f}%</div>
+                <div class="metric-label" style="margin-top:6px;">Historical Probability / TV CSV</div>
+                <div class="metric-value">{hist_prob_text}</div>
                 <div class="metric-label" style="margin-top:6px;">Reason</div>
                 <div style="font-size:11px; line-height:1.45; color:#c8c3b8;">{selected_point['reason']}</div>
                 <div class="metric-label" style="margin-top:6px;">Status / Memo</div>
@@ -2136,7 +2466,15 @@ if run:
             confirm_lookback=int(confirm_lookback),
             confirm_require_full_window=bool(confirm_require_full_window)
         )
-        important_points = detect_important_points(summary_5m)
+        tv_probability_stats = analyze_tradingview_probability(tv_csv_files, tv_lookahead_bars) if tv_csv_files else {
+            "stats_table": pd.DataFrame(),
+            "events_table": pd.DataFrame(),
+            "lookup": {},
+            "source_count": 0,
+            "note": "TradingView CSV未入力"
+        }
+
+        important_points = detect_important_points(summary_5m, tv_probability_stats=tv_probability_stats)
 
         latest = summary_5m.tail(1).iloc[0]
         current_price = float(latest["close"])
@@ -2159,6 +2497,7 @@ if run:
             "volume_by_price_all": volume_by_price_all,
             "side_price_volume_all": side_price_volume_all,
             "sr_levels": sr_levels,
+            "tv_probability_stats": tv_probability_stats,
             "confirm_settings": {
                 "confirm_vol_len": int(confirm_vol_len),
                 "confirm_vol_mult": float(confirm_vol_mult),
