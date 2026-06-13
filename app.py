@@ -553,21 +553,24 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
         )
 
     fig.update_layout(
-        height=720,
+        height=780,
         xaxis_rangeslider_visible=False,
-        title=f"Coinbase {product_id} 5分足チャート",
+        title="",
         template="plotly_dark",
         paper_bgcolor="#131722",
         plot_bgcolor="#131722",
         font=dict(color="#d1d4dc"),
-        margin=dict(l=20, r=20, t=50, b=20),
+        margin=dict(l=20, r=70, t=12, b=120),
         showlegend=True,
         legend=dict(
             orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
+            yanchor="top",
+            y=-0.18,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(19, 23, 34, 0.92)",
+            bordercolor="#2a2e39",
+            borderwidth=1
         )
     )
 
