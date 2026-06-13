@@ -1059,71 +1059,33 @@ def metric_card(label, value, color_class=""):
 
 
 # =========================================================
-# 実行
+# 画面描画
 # =========================================================
 
-if run:
-    tz = "Asia/Tokyo"
+def render_analysis(data):
+    product_id = data["product_id"]
+    range_start = data["range_start"]
+    range_end = data["range_end"]
+    df_candles = data["df_candles"]
+    df_range = data["df_range"]
+    summary_5m = data["summary_5m"]
+    important_points = data["important_points"]
+    volume_by_price_all = data["volume_by_price_all"]
+    side_price_volume_all = data["side_price_volume_all"]
+    sr_levels = data["sr_levels"]
 
-    range_end = pd.Timestamp.now(tz=tz)
-    range_start = range_end - pd.Timedelta(hours=int(hours_back))
-
-    st.info(f"取得範囲: {range_start} 〜 {range_end}")
-
-    # -----------------------------------------------------
-    # ローソク足取得
-    # -----------------------------------------------------
-
-    df_candles = fetch_coinbase_candles(
-        product_id=product_id,
-        range_start=range_start,
-        range_end=range_end,
-        granularity=300
-    )
-
-    # -----------------------------------------------------
-    # 約定履歴取得
-    # -----------------------------------------------------
-
-    df_range = fetch_coinbase_trades(
-        product_id=product_id,
-        range_start=range_start,
-        range_end=range_end,
-        tz=tz
-    )
-
-    if len(df_range) == 0:
-        st.error("約定データが取得できませんでした。")
-        st.stop()
-
-    st.success(f"約定履歴取得完了: {len(df_range)} 件")
-
-    # -----------------------------------------------------
-    # 5分足CDV集計・重要ポイント抽出
-    # -----------------------------------------------------
-
-    summary_5m = make_5m_summary(df_range)
-    important_points = detect_important_points(summary_5m)
-
-    latest = summary_5m.tail(1).iloc[0]
-    current_price = float(latest["close"])
-
-    volume_by_price_all, side_price_volume_all, sr_levels = calculate_volume_profile_levels(
-        df_range=df_range,
-        current_price=current_price,
-        price_round_digit=price_round_digit,
-        top_n=3
-    )
+    st.info(f"保存済み解析データ: {range_start} 〜 {range_end}")
 
     selected_point = None
 
     if len(important_points) > 0:
         st.subheader("重要ポイントピックアップ")
         selected_label = st.radio(
-            "クリックするとチャート上で該当ローソクをスポット表示します",
+            "クリックするとチャート上で該当ローソクをスポット表示します。※クリックだけでは再取得しません。",
             important_points["label"].tolist(),
             index=0,
-            horizontal=False
+            horizontal=False,
+            key="selected_important_point"
         )
         selected_point = important_points[important_points["label"] == selected_label].iloc[0]
 
@@ -1148,11 +1110,11 @@ if run:
             use_container_width=True
         )
 
-    latest = summary_5m.tail(1).iloc[0]
-
     if len(sr_levels) > 0:
         st.subheader("POC / サポート / レジスタンス候補")
         st.dataframe(sr_levels, use_container_width=True)
+
+    latest = summary_5m.tail(1).iloc[0]
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -1274,7 +1236,7 @@ if run:
 
     if detail_5m_start_str.strip():
         try:
-            detail_start = pd.Timestamp(detail_5m_start_str, tz=tz)
+            detail_start = pd.Timestamp(detail_5m_start_str, tz="Asia/Tokyo")
         except Exception:
             st.error("詳しく見る5分足の日時形式が不正です。例: 2026-06-13 20:55:00")
             st.stop()
@@ -1355,6 +1317,70 @@ if run:
                     file_name="detail_volume_by_second.csv",
                     mime="text/csv"
                 )
+
+
+# =========================================================
+# 実行制御
+# =========================================================
+
+if "analysis_data" not in st.session_state:
+    st.session_state["analysis_data"] = None
+
+if run:
+    tz = "Asia/Tokyo"
+
+    range_end = pd.Timestamp.now(tz=tz)
+    range_start = range_end - pd.Timedelta(hours=int(hours_back))
+
+    with st.spinner("Coinbase APIからデータ取得・解析中..."):
+        df_candles = fetch_coinbase_candles(
+            product_id=product_id,
+            range_start=range_start,
+            range_end=range_end,
+            granularity=300
+        )
+
+        df_range = fetch_coinbase_trades(
+            product_id=product_id,
+            range_start=range_start,
+            range_end=range_end,
+            tz=tz
+        )
+
+        if len(df_range) == 0:
+            st.error("約定データが取得できませんでした。")
+            st.stop()
+
+        summary_5m = make_5m_summary(df_range)
+        important_points = detect_important_points(summary_5m)
+
+        latest = summary_5m.tail(1).iloc[0]
+        current_price = float(latest["close"])
+
+        volume_by_price_all, side_price_volume_all, sr_levels = calculate_volume_profile_levels(
+            df_range=df_range,
+            current_price=current_price,
+            price_round_digit=price_round_digit,
+            top_n=3
+        )
+
+        st.session_state["analysis_data"] = {
+            "product_id": product_id,
+            "range_start": range_start,
+            "range_end": range_end,
+            "df_candles": df_candles,
+            "df_range": df_range,
+            "summary_5m": summary_5m,
+            "important_points": important_points,
+            "volume_by_price_all": volume_by_price_all,
+            "side_price_volume_all": side_price_volume_all,
+            "sr_levels": sr_levels,
+        }
+
+    st.success("解析完了。重要ポイントの選択は再取得なしで切り替えできます。")
+
+if st.session_state["analysis_data"] is not None:
+    render_analysis(st.session_state["analysis_data"])
 else:
     st.markdown(
         """
