@@ -1178,6 +1178,23 @@ def render_analysis(data):
     side_price_volume_all = data["side_price_volume_all"]
     sr_levels = data["sr_levels"]
 
+    # 旧バージョンで保存されたsession_state対策
+    # app.py更新直後に古いimportant_pointsが残っているとpoint_idが無くてKeyErrorになるため補完する
+    if important_points is not None and len(important_points) > 0 and "point_id" not in important_points.columns:
+        important_points = important_points.copy()
+        if "No" not in important_points.columns:
+            important_points["No"] = range(1, len(important_points) + 1)
+        important_points["point_id"] = important_points.apply(
+            lambda r: f"{pd.Timestamp(r['time_5m']).isoformat()}__{r['type']}__{r['No']}",
+            axis=1
+        )
+        if "label" not in important_points.columns:
+            important_points["label"] = important_points.apply(
+                lambda r: f"{int(r['No'])}. {pd.Timestamp(r['time_5m']).strftime('%m/%d %H:%M')}｜{r['type']}｜score {r['score']}｜close {r['close']:.2f}",
+                axis=1
+            )
+        data["important_points"] = important_points
+
     st.info(f"保存済み解析データ: {range_start} 〜 {range_end}")
 
     selected_point = None
