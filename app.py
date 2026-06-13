@@ -202,6 +202,51 @@ st.markdown(
     .stCaptionContainer, .stMarkdown, .stText {
         font-size: 12px;
     }
+
+
+    .side-icon-card {
+        background-color: #0b0b0c;
+        border: 1px solid #2b2b2f;
+        border-left: 4px solid #c1121f;
+        border-radius: 2px;
+        padding: 9px 9px 7px 9px;
+        margin: 0 0 14px 0;
+    }
+
+    .side-icon-title {
+        font-size: 10px;
+        line-height: 1;
+        color: #f4f1ea;
+        font-weight: 800;
+        letter-spacing: 0.7px;
+        text-transform: uppercase;
+        margin-top: 3px;
+    }
+
+    .side-icon-sub {
+        font-size: 9px;
+        color: #8f8f8f;
+        letter-spacing: 0.2px;
+        margin-top: 3px;
+    }
+
+    .inflation-svg {
+        width: 92px;
+        height: auto;
+        display: block;
+    }
+
+    .tiny-status {
+        display: inline-block;
+        background-color: #101012;
+        border-left: 3px solid #c1121f;
+        color: #9b9b9b;
+        font-size: 10.5px;
+        line-height: 1.2;
+        padding: 5px 8px;
+        margin: 4px 0 10px 0;
+        letter-spacing: 0.1px;
+    }
     </style>
     """,
     unsafe_allow_html=True
@@ -233,6 +278,31 @@ st.markdown(
 # =========================================================
 
 with st.sidebar:
+    st.markdown(
+        """
+        <div class="side-icon-card">
+            <svg class="inflation-svg" viewBox="0 0 180 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Inflation stencil icon">
+                <rect x="0" y="0" width="180" height="120" fill="#0b0b0c"/>
+                <path d="M36 76 C52 70, 65 68, 82 74 C93 78, 106 78, 120 72" fill="none" stroke="#f4f1ea" stroke-width="7" stroke-linecap="round" opacity="0.94"/>
+                <path d="M42 79 L30 94 L53 88 Z" fill="#f4f1ea" opacity="0.94"/>
+                <circle cx="124" cy="36" r="27" fill="#c1121f"/>
+                <path d="M111 33 H138" stroke="#0b0b0c" stroke-width="7" stroke-linecap="square"/>
+                <path d="M124 21 V50" stroke="#0b0b0c" stroke-width="7" stroke-linecap="square"/>
+                <path d="M124 63 C121 73, 112 76, 104 80" fill="none" stroke="#f4f1ea" stroke-width="4" stroke-linecap="round" stroke-dasharray="5 5"/>
+                <path d="M66 46 L93 38 L104 67 L76 76 Z" fill="none" stroke="#f4f1ea" stroke-width="5"/>
+                <path d="M77 56 L90 52" stroke="#f4f1ea" stroke-width="4" stroke-linecap="round"/>
+                <path d="M84 47 L89 64" stroke="#f4f1ea" stroke-width="4" stroke-linecap="round"/>
+                <path d="M147 80 L147 50" stroke="#c1121f" stroke-width="7" stroke-linecap="square"/>
+                <path d="M134 63 L147 50 L160 63" fill="none" stroke="#c1121f" stroke-width="7" stroke-linecap="square"/>
+                <path d="M18 105 H162" stroke="#2b2b2f" stroke-width="3" stroke-dasharray="7 6"/>
+            </svg>
+            <div class="side-icon-title">INFLATION / FLOW</div>
+            <div class="side-icon-sub">price rises, liquidity hides</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
     st.markdown("### Settings")
 
     product_id = st.text_input("Product ID", value="BTC-USD")
@@ -463,10 +533,11 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             high=df_candles["high"],
             low=df_candles["low"],
             close=df_candles["close"],
-            increasing_line_color="#22ab94",
-            decreasing_line_color="#f23645",
-            increasing_fillcolor="#22ab94",
-            decreasing_fillcolor="#f23645",
+            # Light chart mode: buy candle = white, sell candle = black
+            increasing_line_color="#111111",
+            decreasing_line_color="#111111",
+            increasing_fillcolor="#ffffff",
+            decreasing_fillcolor="#111111",
             name=product_id
         ),
         row=1,
@@ -477,7 +548,7 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
         go.Bar(
             x=df_candles["time"],
             y=df_candles["volume"],
-            marker_color="#363a45",
+            marker_color="#9a9a9a",
             name="Volume"
         ),
         row=2,
@@ -486,14 +557,15 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
 
     # 重要ポイントをチャートにマーカー表示
     if important_points is not None and len(important_points) > 0:
+        # Simple monochrome/stencil-like chart icons
         marker_colors = {
-            "Buy absorption": "#22ab94",
-            "Buy confirmation": "#2962ff",
-            "Sell absorption": "#f23645",
-            "Sell confirmation": "#ff9800",
-            "Short squeeze candidate": "#00e676",
-            "Long squeeze candidate": "#ff5252",
-            "High volume": "#b2b5be"
+            "Buy absorption": "#ffffff",
+            "Buy confirmation": "#ffffff",
+            "Sell absorption": "#111111",
+            "Sell confirmation": "#111111",
+            "Short squeeze candidate": "#c1121f",
+            "Long squeeze candidate": "#c1121f",
+            "High volume": "#8a8a8a"
         }
 
         marker_symbols = {
@@ -502,8 +574,18 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             "Sell absorption": "triangle-down",
             "Sell confirmation": "x",
             "Short squeeze candidate": "star",
-            "Long squeeze candidate": "star",
+            "Long squeeze candidate": "star-diamond",
             "High volume": "diamond"
+        }
+
+        marker_line_colors = {
+            "Buy absorption": "#111111",
+            "Buy confirmation": "#111111",
+            "Sell absorption": "#ffffff",
+            "Sell confirmation": "#111111",
+            "Short squeeze candidate": "#111111",
+            "Long squeeze candidate": "#111111",
+            "High volume": "#111111"
         }
 
         for point_type, group in important_points.groupby("type"):
@@ -516,7 +598,7 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
                         size=12,
                         color=marker_colors.get(point_type, "#ffffff"),
                         symbol=marker_symbols.get(point_type, "circle"),
-                        line=dict(width=1, color="#ffffff")
+                        line=dict(width=1.5, color=marker_line_colors.get(point_type, "#111111"))
                     ),
                     name=point_type,
                     text=group["reason"],
@@ -538,13 +620,13 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             volume = float(level["volume_BTC"])
 
             if kind == "POC":
-                color = "#ffd54f"
+                color = "#c1121f"
                 dash = "solid"
             elif kind == "Support":
-                color = "#22ab94"
+                color = "#5f5f5f"
                 dash = "dot"
             else:
-                color = "#f23645"
+                color = "#111111"
                 dash = "dot"
 
             # SR/POCラベルは価格が近いと重なるため、チャート上には線だけ表示。
@@ -566,21 +648,10 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
         selected_price = selected_point["spot_price"]
         selected_label = selected_point["label"]
 
-        # Plotlyのローソク足はx時刻を中心に描画されるため、
-        # 5分足のスポット帯もローソク中央に合わせる。
-        fig.add_vrect(
-            x0=selected_start,
-            x1=selected_end,
-            fillcolor="#2962ff",
-            opacity=0.18,
-            line_width=0,
-            row=1,
-            col=1
-        )
-
+        # Spotは青い帯を使わず、ローソク中央の細い縦線だけにする。
         fig.add_vline(
             x=selected_time,
-            line_color="#ffd54f",
+            line_color="#c1121f",
             line_width=1,
             line_dash="dash",
             row=1,
@@ -594,9 +665,9 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
                 mode="markers+text",
                 marker=dict(
                     size=22,
-                    color="#ffd54f",
+                    color="#ffffff",
                     symbol="circle-open",
-                    line=dict(width=3, color="#ffd54f")
+                    line=dict(width=3, color="#c1121f")
                 ),
                 text=["SPOT"],
                 textposition="top center",
@@ -615,9 +686,9 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             arrowhead=2,
             ax=40,
             ay=-60,
-            bgcolor="#1e222d",
-            bordercolor="#ffd54f",
-            font=dict(color="#f0f3fa", size=11),
+            bgcolor="#f2f2f2",
+            bordercolor="#c1121f",
+            font=dict(color="#111111", size=11),
             row=1,
             col=1
         )
@@ -626,10 +697,10 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
         height=780,
         xaxis_rangeslider_visible=False,
         title="",
-        template="plotly_dark",
-        paper_bgcolor="#131722",
-        plot_bgcolor="#131722",
-        font=dict(color="#d1d4dc"),
+        template="plotly_white",
+        paper_bgcolor="#d9d9d9",
+        plot_bgcolor="#d9d9d9",
+        font=dict(color="#111111"),
         margin=dict(l=20, r=70, t=12, b=120),
         showlegend=True,
         legend=dict(
@@ -638,21 +709,21 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             y=-0.18,
             xanchor="center",
             x=0.5,
-            bgcolor="rgba(19, 23, 34, 0.92)",
-            bordercolor="#2a2e39",
+            bgcolor="rgba(217, 217, 217, 0.95)",
+            bordercolor="#111111",
             borderwidth=1
         )
     )
 
     fig.update_xaxes(
-        gridcolor="#2a2e39",
-        zerolinecolor="#2a2e39",
+        gridcolor="#b8b8b8",
+        zerolinecolor="#9e9e9e",
         rangeslider_visible=False
     )
 
     fig.update_yaxes(
-        gridcolor="#2a2e39",
-        zerolinecolor="#2a2e39"
+        gridcolor="#b8b8b8",
+        zerolinecolor="#9e9e9e"
     )
 
     return st.plotly_chart(
@@ -1340,7 +1411,10 @@ def render_analysis(data):
             )
         data["important_points"] = important_points
 
-    st.info(f"保存済み解析データ: {range_start} 〜 {range_end}")
+    st.markdown(
+        f'<div class="tiny-status">Data: {range_start.strftime("%Y-%m-%d %H:%M")} – {range_end.strftime("%Y-%m-%d %H:%M")}</div>',
+        unsafe_allow_html=True
+    )
 
     selected_point = None
 
@@ -1707,7 +1781,10 @@ if run:
             },
         }
 
-    st.success("Analysis complete. You can switch important-point selections without refetching data.")
+    st.markdown(
+        '<div class="tiny-status">Analysis complete. Point selection does not refetch data.</div>',
+        unsafe_allow_html=True
+    )
 
 if st.session_state["analysis_data"] is not None:
     render_analysis(st.session_state["analysis_data"])
