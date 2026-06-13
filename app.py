@@ -603,7 +603,7 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
         marker_line_widths = {
             "Buy absorption": 1.3,
             "Sell absorption": 1.3,
-            "Buy confirmation": 2.2,
+            "Buy confirmation": 1.3,
             "Sell confirmation": 4.0,
             "Short squeeze candidate": 1.5,
             "Long squeeze candidate": 1.5,
@@ -1270,7 +1270,36 @@ def detect_important_points(summary_5m):
         axis=1
     )
     points["label"] = points.apply(
-        lambda r: f"{int(r['No'])}. {r['time_5m'].strftime('%m/%d %H:%M')}｜{r['type']}｜score {r['score']}｜close {r['close']:.2f}",
+        lambda r: f"{int(r['No'])}. {r['time_5m'].strftime('%m/%d %H:%M')} | {r['type']} | score {r['score']} | close {r['close']:.2f}",
+        axis=1
+    )
+
+    # Icon rail placement:
+    # Do not stack icons directly on price. Put them slightly above bullish/neutral candles,
+    # and below bearish candles. Multiple icons on the same bar are lined up with slots.
+    points["icon_side"] = points["candle_move"].apply(lambda x: "below" if x < 0 else "above")
+
+    points = points.sort_values(["time_5m", "icon_side", "score"], ascending=[True, True, False]).reset_index(drop=True)
+    points["icon_slot"] = points.groupby(["time_5m", "icon_side"]).cumcount()
+
+    def _icon_y(r):
+        bar_range = max(float(r["high"] - r["low"]), 1.0)
+        step = max(bar_range * 0.16, 10.0)
+        if r["icon_side"] == "below":
+            return float(r["low"] - step * (r["icon_slot"] + 1))
+        return float(r["high"] + step * (r["icon_slot"] + 1))
+
+    points["spot_price"] = points.apply(_icon_y, axis=1)
+
+    # Re-sort by importance for the table after calculating rail positions.
+    points = points.sort_values(["score", "volume_BTC"], ascending=False).reset_index(drop=True)
+    points["No"] = range(1, len(points) + 1)
+    points["point_id"] = points.apply(
+        lambda r: f"{r['time_5m'].isoformat()}__{r['type']}__{r['No']}",
+        axis=1
+    )
+    points["label"] = points.apply(
+        lambda r: f"{int(r['No'])}. {r['time_5m'].strftime('%m/%d %H:%M')} | {r['type']} | score {r['score']} | close {r['close']:.2f}",
         axis=1
     )
 
@@ -1557,10 +1586,23 @@ def render_analysis(data):
         )
 
     st.subheader("Coinbase 5m Chart")
+
+    show_selected_only = False
+    if len(important_points) > 0 and selected_point is not None:
+        show_selected_only = st.checkbox(
+            "Selected icon only",
+            value=False,
+            help="Use this after selecting a row or clicking an icon. Streamlit does not reliably support double-click events in the standard table."
+        )
+
+    chart_points = important_points
+    if show_selected_only and selected_point is not None:
+        chart_points = pd.DataFrame([selected_point])
+
     chart_event = show_candlestick_chart(
         df_candles,
         product_id,
-        important_points=important_points,
+        important_points=chart_points,
         selected_point=selected_point,
         sr_levels=sr_levels
     )
