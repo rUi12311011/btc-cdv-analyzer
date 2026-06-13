@@ -385,7 +385,7 @@ def fetch_coinbase_candles(product_id, range_start, range_end, granularity=300):
 # ローソク足チャート表示
 # =========================================================
 
-def show_candlestick_chart(df_candles, product_id):
+def show_candlestick_chart(df_candles, product_id, important_points=None, selected_point=None, sr_levels=None):
     if len(df_candles) == 0:
         st.warning("ローソク足データがありません。")
         return
@@ -426,6 +426,132 @@ def show_candlestick_chart(df_candles, product_id):
         col=1
     )
 
+    # 重要ポイントをチャートにマーカー表示
+    if important_points is not None and len(important_points) > 0:
+        marker_colors = {
+            "買い吸収": "#22ab94",
+            "買い確認": "#2962ff",
+            "売り吸収": "#f23645",
+            "売り確認": "#ff9800",
+            "ショートスクイーズ候補": "#00e676",
+            "ロングスクイーズ候補": "#ff5252",
+            "高出来高": "#b2b5be"
+        }
+
+        marker_symbols = {
+            "買い吸収": "triangle-up",
+            "買い確認": "circle",
+            "売り吸収": "triangle-down",
+            "売り確認": "x",
+            "ショートスクイーズ候補": "star",
+            "ロングスクイーズ候補": "star",
+            "高出来高": "diamond"
+        }
+
+        for point_type, group in important_points.groupby("type"):
+            fig.add_trace(
+                go.Scatter(
+                    x=group["time_5m"],
+                    y=group["spot_price"],
+                    mode="markers",
+                    marker=dict(
+                        size=12,
+                        color=marker_colors.get(point_type, "#ffffff"),
+                        symbol=marker_symbols.get(point_type, "circle"),
+                        line=dict(width=1, color="#ffffff")
+                    ),
+                    name=point_type,
+                    text=group["reason"],
+                    hovertemplate=(
+                        "<b>%{text}</b><br>"
+                        "time=%{x}<br>"
+                        "price=%{y}<extra></extra>"
+                    )
+                ),
+                row=1,
+                col=1
+            )
+
+    # POC / サポート / レジスタンス候補の水平線
+    if sr_levels is not None and len(sr_levels) > 0:
+        for _, level in sr_levels.iterrows():
+            kind = level["kind"]
+            price = float(level["price"])
+            volume = float(level["volume_BTC"])
+
+            if kind == "POC":
+                color = "#ffd54f"
+                dash = "solid"
+            elif kind == "Support":
+                color = "#22ab94"
+                dash = "dot"
+            else:
+                color = "#f23645"
+                dash = "dot"
+
+            fig.add_hline(
+                y=price,
+                line_color=color,
+                line_dash=dash,
+                line_width=2,
+                annotation_text=f"{kind} {price:.1f} / {volume:.2f} BTC",
+                annotation_position="right",
+                row=1,
+                col=1
+            )
+
+    # 選択したポイントをスポット表示
+    if selected_point is not None:
+        selected_time = selected_point["time_5m"]
+        selected_end = selected_time + pd.Timedelta(minutes=5)
+        selected_price = selected_point["spot_price"]
+        selected_label = selected_point["label"]
+
+        fig.add_vrect(
+            x0=selected_time,
+            x1=selected_end,
+            fillcolor="#2962ff",
+            opacity=0.18,
+            line_width=0,
+            row=1,
+            col=1
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=[selected_time],
+                y=[selected_price],
+                mode="markers+text",
+                marker=dict(
+                    size=22,
+                    color="#ffd54f",
+                    symbol="circle-open",
+                    line=dict(width=3, color="#ffd54f")
+                ),
+                text=["SPOT"],
+                textposition="top center",
+                name="Selected Spot",
+                hovertemplate=f"<b>{selected_label}</b><extra></extra>"
+            ),
+            row=1,
+            col=1
+        )
+
+        fig.add_annotation(
+            x=selected_time,
+            y=selected_price,
+            text=selected_label,
+            showarrow=True,
+            arrowhead=2,
+            ax=40,
+            ay=-60,
+            bgcolor="#1e222d",
+            bordercolor="#ffd54f",
+            font=dict(color="#f0f3fa", size=11),
+            row=1,
+            col=1
+        )
+
     fig.update_layout(
         height=720,
         xaxis_rangeslider_visible=False,
@@ -435,7 +561,14 @@ def show_candlestick_chart(df_candles, product_id):
         plot_bgcolor="#131722",
         font=dict(color="#d1d4dc"),
         margin=dict(l=20, r=20, t=50, b=20),
-        showlegend=False
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
     )
 
     fig.update_xaxes(
@@ -554,6 +687,215 @@ def make_5m_summary(df_range):
     summary_5m.loc[summary_5m["candle_move"] > 0, "defense_score"] += 1
 
     return summary_5m
+
+
+
+
+# =========================================================
+# POC / サポート / レジスタンス候補
+# =========================================================
+
+def calculate_volume_profile_levels(df_range, current_price, price_round_digit, top_n=3):
+    df = df_range.copy()
+    df["price_bin"] = df["price"].round(price_round_digit)
+
+    volume_by_price_all = (
+        df
+        .groupby("price_bin")["size_BTC"]
+        .sum()
+        .sort_values(ascending=False)
+        .reset_index()
+    )
+
+    side_price_volume_all = (
+        df
+        .groupby(["price_bin", "taker_side_estimate"])["size_BTC"]
+        .sum()
+        .unstack(fill_value=0)
+    )
+
+    side_price_volume_all["合計"] = side_price_volume_all.sum(axis=1)
+    side_price_volume_all = side_price_volume_all.sort_values("合計", ascending=False)
+
+    levels = []
+
+    if len(volume_by_price_all) == 0:
+        return volume_by_price_all, side_price_volume_all, pd.DataFrame()
+
+    poc = volume_by_price_all.iloc[0]
+    levels.append({
+        "kind": "POC",
+        "price": float(poc["price_bin"]),
+        "volume_BTC": float(poc["size_BTC"]),
+        "distance_from_current": float(poc["price_bin"] - current_price),
+        "memo": "選択期間内で最も出来高が集中した価格帯"
+    })
+
+    supports = (
+        volume_by_price_all[volume_by_price_all["price_bin"] < current_price]
+        .sort_values("size_BTC", ascending=False)
+        .head(top_n)
+    )
+
+    resistances = (
+        volume_by_price_all[volume_by_price_all["price_bin"] > current_price]
+        .sort_values("size_BTC", ascending=False)
+        .head(top_n)
+    )
+
+    for _, r in supports.iterrows():
+        levels.append({
+            "kind": "Support",
+            "price": float(r["price_bin"]),
+            "volume_BTC": float(r["size_BTC"]),
+            "distance_from_current": float(r["price_bin"] - current_price),
+            "memo": "現在値より下の出来高集中帯。サポート候補。"
+        })
+
+    for _, r in resistances.iterrows():
+        levels.append({
+            "kind": "Resistance",
+            "price": float(r["price_bin"]),
+            "volume_BTC": float(r["size_BTC"]),
+            "distance_from_current": float(r["price_bin"] - current_price),
+            "memo": "現在値より上の出来高集中帯。レジスタンス候補。"
+        })
+
+    sr_levels = pd.DataFrame(levels)
+    sr_levels = sr_levels.drop_duplicates(subset=["kind", "price"])
+
+    return volume_by_price_all, side_price_volume_all, sr_levels
+
+
+# =========================================================
+# 重要ポイント自動抽出
+# =========================================================
+
+def detect_important_points(summary_5m):
+    rows = []
+
+    if summary_5m is None or len(summary_5m) == 0:
+        return pd.DataFrame()
+
+    df = summary_5m.copy().reset_index()
+
+    vol_threshold = df["volume_BTC"].quantile(0.80)
+
+    for i, row in df.iterrows():
+        t = row["time_5m"]
+        base = {
+            "time_5m": t,
+            "open": row["open"],
+            "high": row["high"],
+            "low": row["low"],
+            "close": row["close"],
+            "spot_price": row["close"],
+            "volume_BTC": row["volume_BTC"],
+            "delta_BTC": row["delta_BTC"],
+            "buy_ratio_%": row["buy_ratio_%"],
+            "sell_ratio_%": row["sell_ratio_%"],
+            "candle_move": row["candle_move"],
+        }
+
+        if row["buy_absorption_candidate"]:
+            score = 80 + min(15, max(0, row["sell_ratio_%"] - 60) / 2)
+            rows.append({
+                **base,
+                "type": "買い吸収",
+                "score": round(score, 1),
+                "reason": f"売り成行{row['sell_ratio_%']:.1f}%なのにローソクが下がらない/陽線。買い吸収候補。"
+            })
+
+        if row["bullish_confirmation"]:
+            score = 70 + min(20, max(0, row["buy_ratio_%"] - 65) / 2)
+            rows.append({
+                **base,
+                "type": "買い確認",
+                "score": round(score, 1),
+                "reason": f"買い成行{row['buy_ratio_%']:.1f}%で陽線。上方向の確認足候補。"
+            })
+
+        if row["sell_absorption_candidate"]:
+            score = 80 + min(15, max(0, row["buy_ratio_%"] - 60) / 2)
+            rows.append({
+                **base,
+                "type": "売り吸収",
+                "score": round(score, 1),
+                "reason": f"買い成行{row['buy_ratio_%']:.1f}%なのに上がらない/陰線。売り吸収候補。"
+            })
+
+        if row["bearish_confirmation"]:
+            score = 70 + min(20, max(0, row["sell_ratio_%"] - 65) / 2)
+            rows.append({
+                **base,
+                "type": "売り確認",
+                "score": round(score, 1),
+                "reason": f"売り成行{row['sell_ratio_%']:.1f}%で陰線。下方向の確認足候補。"
+            })
+
+        if row["volume_BTC"] >= vol_threshold:
+            rows.append({
+                **base,
+                "type": "高出来高",
+                "score": 60,
+                "reason": f"選択期間内で上位20%の出来高。出来高集中ポイント。"
+            })
+
+    # スクイーズ候補：吸収のあと数本以内に確認足が出たところを強調
+    for i, row in df.iterrows():
+        future = df.iloc[i+1:i+4]
+
+        if row["buy_absorption_candidate"] and len(future) > 0 and future["bullish_confirmation"].any():
+            confirm = future[future["bullish_confirmation"]].iloc[0]
+            rows.append({
+                "time_5m": confirm["time_5m"],
+                "open": confirm["open"],
+                "high": confirm["high"],
+                "low": confirm["low"],
+                "close": confirm["close"],
+                "spot_price": confirm["close"],
+                "volume_BTC": confirm["volume_BTC"],
+                "delta_BTC": confirm["delta_BTC"],
+                "buy_ratio_%": confirm["buy_ratio_%"],
+                "sell_ratio_%": confirm["sell_ratio_%"],
+                "candle_move": confirm["candle_move"],
+                "type": "ショートスクイーズ候補",
+                "score": 95,
+                "reason": f"{row['time_5m']}の買い吸収後、{confirm['time_5m']}で買い確認。ショートスクイーズ候補。"
+            })
+
+        if row["sell_absorption_candidate"] and len(future) > 0 and future["bearish_confirmation"].any():
+            confirm = future[future["bearish_confirmation"]].iloc[0]
+            rows.append({
+                "time_5m": confirm["time_5m"],
+                "open": confirm["open"],
+                "high": confirm["high"],
+                "low": confirm["low"],
+                "close": confirm["close"],
+                "spot_price": confirm["close"],
+                "volume_BTC": confirm["volume_BTC"],
+                "delta_BTC": confirm["delta_BTC"],
+                "buy_ratio_%": confirm["buy_ratio_%"],
+                "sell_ratio_%": confirm["sell_ratio_%"],
+                "candle_move": confirm["candle_move"],
+                "type": "ロングスクイーズ候補",
+                "score": 95,
+                "reason": f"{row['time_5m']}の売り吸収後、{confirm['time_5m']}で売り確認。ロングスクイーズ候補。"
+            })
+
+    if not rows:
+        return pd.DataFrame()
+
+    points = pd.DataFrame(rows)
+    points = points.drop_duplicates(subset=["time_5m", "type"])
+    points = points.sort_values(["score", "volume_BTC"], ascending=False).reset_index(drop=True)
+
+    points["label"] = points.apply(
+        lambda r: f"{r['time_5m'].strftime('%m/%d %H:%M')}｜{r['type']}｜score {r['score']}｜close {r['close']:.2f}",
+        axis=1
+    )
+
+    return points
 
 
 # =========================================================
@@ -729,7 +1071,7 @@ if run:
     st.info(f"取得範囲: {range_start} 〜 {range_end}")
 
     # -----------------------------------------------------
-    # ローソク足チャート取得・表示
+    # ローソク足取得
     # -----------------------------------------------------
 
     df_candles = fetch_coinbase_candles(
@@ -738,9 +1080,6 @@ if run:
         range_end=range_end,
         granularity=300
     )
-
-    st.subheader("Coinbase 5分足チャート")
-    show_candlestick_chart(df_candles, product_id)
 
     # -----------------------------------------------------
     # 約定履歴取得
@@ -760,12 +1099,60 @@ if run:
     st.success(f"約定履歴取得完了: {len(df_range)} 件")
 
     # -----------------------------------------------------
-    # 5分足CDV集計
+    # 5分足CDV集計・重要ポイント抽出
     # -----------------------------------------------------
 
     summary_5m = make_5m_summary(df_range)
+    important_points = detect_important_points(summary_5m)
 
     latest = summary_5m.tail(1).iloc[0]
+    current_price = float(latest["close"])
+
+    volume_by_price_all, side_price_volume_all, sr_levels = calculate_volume_profile_levels(
+        df_range=df_range,
+        current_price=current_price,
+        price_round_digit=price_round_digit,
+        top_n=3
+    )
+
+    selected_point = None
+
+    if len(important_points) > 0:
+        st.subheader("重要ポイントピックアップ")
+        selected_label = st.radio(
+            "クリックするとチャート上で該当ローソクをスポット表示します",
+            important_points["label"].tolist(),
+            index=0,
+            horizontal=False
+        )
+        selected_point = important_points[important_points["label"] == selected_label].iloc[0]
+
+    st.subheader("Coinbase 5分足チャート")
+    show_candlestick_chart(
+        df_candles,
+        product_id,
+        important_points=important_points,
+        selected_point=selected_point,
+        sr_levels=sr_levels
+    )
+
+    if len(important_points) > 0:
+        st.subheader("重要ポイント一覧")
+        st.dataframe(
+            important_points[[
+                "time_5m", "type", "score", "reason",
+                "open", "high", "low", "close",
+                "volume_BTC", "delta_BTC",
+                "buy_ratio_%", "sell_ratio_%"
+            ]],
+            use_container_width=True
+        )
+
+    latest = summary_5m.tail(1).iloc[0]
+
+    if len(sr_levels) > 0:
+        st.subheader("POC / サポート / レジスタンス候補")
+        st.dataframe(sr_levels, use_container_width=True)
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -830,26 +1217,6 @@ if run:
     # -----------------------------------------------------
     # 全体価格帯別出来高
     # -----------------------------------------------------
-
-    df_range["price_bin"] = df_range["price"].round(price_round_digit)
-
-    volume_by_price_all = (
-        df_range
-        .groupby("price_bin")["size_BTC"]
-        .sum()
-        .sort_values(ascending=False)
-        .reset_index()
-    )
-
-    side_price_volume_all = (
-        df_range
-        .groupby(["price_bin", "taker_side_estimate"])["size_BTC"]
-        .sum()
-        .unstack(fill_value=0)
-    )
-
-    side_price_volume_all["合計"] = side_price_volume_all.sum(axis=1)
-    side_price_volume_all = side_price_volume_all.sort_values("合計", ascending=False)
 
     col_a, col_b = st.columns(2)
 
