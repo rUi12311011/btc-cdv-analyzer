@@ -372,31 +372,40 @@ with st.sidebar:
     icon_col1, icon_col2 = st.columns(2)
 
     with icon_col1:
-        if st.checkbox("△ Buy Abs", value=True, key="vis_buy_abs"):
-            visible_icon_types.append("Buy absorption")
-        if st.checkbox("+ Buy Conf", value=True, key="vis_buy_conf"):
+        if st.checkbox("Support", value=True, key="vis_support_candidate"):
+            visible_icon_types.append("Support candidate")
+        if st.checkbox("Short setup", value=True, key="vis_short_setup"):
+            visible_icon_types.append("Short squeeze setup")
+        if st.checkbox("Short trigger", value=True, key="vis_short_trigger"):
+            visible_icon_types.append("Short squeeze trigger")
+        if st.checkbox("Tape sqz", value=True, key="vis_tape_squeeze"):
+            visible_icon_types.append("Tape-confirmed squeeze")
+        if st.checkbox("Buy Conf", value=False, key="vis_buy_conf"):
             visible_icon_types.append("Buy confirmation")
-        if st.checkbox("★ Short", value=True, key="vis_short_sqz"):
-            visible_icon_types.append("Short squeeze candidate")
-        if st.checkbox("◇ High", value=True, key="vis_high_vol"):
-            visible_icon_types.append("High volume")
 
     with icon_col2:
-        if st.checkbox("▼ Sell Abs", value=True, key="vis_sell_abs"):
-            visible_icon_types.append("Sell absorption")
-        if st.checkbox("− Sell Conf", value=True, key="vis_sell_conf"):
+        if st.checkbox("Resistance", value=True, key="vis_resistance_candidate"):
+            visible_icon_types.append("Resistance candidate")
+        if st.checkbox("Long setup", value=True, key="vis_long_setup"):
+            visible_icon_types.append("Long squeeze setup")
+        if st.checkbox("Long trigger", value=True, key="vis_long_trigger"):
+            visible_icon_types.append("Long squeeze trigger")
+        if st.checkbox("Thin move", value=True, key="vis_liquidity_thin"):
+            visible_icon_types.append("Liquidity thin move")
+        if st.checkbox("Sell Conf", value=False, key="vis_sell_conf"):
             visible_icon_types.append("Sell confirmation")
-        if st.checkbox("✳ Long", value=True, key="vis_long_sqz"):
-            visible_icon_types.append("Long squeeze candidate")
 
     icon_type_options = [
-        "Buy absorption",
-        "Sell absorption",
+        "Support candidate",
+        "Resistance candidate",
+        "Short squeeze setup",
+        "Short squeeze trigger",
+        "Long squeeze setup",
+        "Long squeeze trigger",
+        "Tape-confirmed squeeze",
+        "Liquidity thin move",
         "Buy confirmation",
         "Sell confirmation",
-        "Short squeeze candidate",
-        "Long squeeze candidate",
-        "High volume",
     ]
 
     st.markdown("---")
@@ -566,7 +575,7 @@ def fetch_coinbase_candles(product_id, range_start, range_end, granularity=300):
 # ローソク足チャート表示
 # =========================================================
 
-def show_candlestick_chart(df_candles, product_id, important_points=None, selected_point=None, sr_levels=None):
+def show_candlestick_chart(df_candles, product_id, important_points=None, selected_point=None, sr_levels=None, legend_types=None):
     if len(df_candles) == 0:
         st.warning("ローソク足データがありません。")
         return
@@ -627,7 +636,7 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             "Buy absorption": "triangle-up-open",
             "Sell absorption": "triangle-down",
             "Buy confirmation": "cross-open",
-            "Sell confirmation": "line-ew-open",
+            "Sell confirmation": "line-ew",
             "Short squeeze candidate": "star",
             "Long squeeze candidate": "asterisk",
             "High volume": "diamond-open"
@@ -663,7 +672,66 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             "High volume": 1.2
         }
 
+        marker_colors.update({
+            "Support candidate": "#111111",
+            "Resistance candidate": "#111111",
+            "Short squeeze setup": "#c1121f",
+            "Short squeeze trigger": "#c1121f",
+            "Long squeeze setup": "#c1121f",
+            "Long squeeze trigger": "#c1121f",
+            "Tape-confirmed squeeze": "#c1121f",
+            "Liquidity thin move": "#4f4f4f",
+            "Failed breakout": "#8f0d17",
+        })
+        marker_symbols.update({
+            "Support candidate": "triangle-up-open",
+            "Resistance candidate": "triangle-down-open",
+            "Short squeeze setup": "star-open",
+            "Short squeeze trigger": "star",
+            "Long squeeze setup": "asterisk-open",
+            "Long squeeze trigger": "asterisk",
+            "Tape-confirmed squeeze": "star-diamond",
+            "Liquidity thin move": "diamond-open",
+            "Failed breakout": "x",
+        })
+        marker_line_colors.update({
+            "Support candidate": "#111111",
+            "Resistance candidate": "#111111",
+            "Short squeeze setup": "#c1121f",
+            "Short squeeze trigger": "#c1121f",
+            "Long squeeze setup": "#c1121f",
+            "Long squeeze trigger": "#c1121f",
+            "Tape-confirmed squeeze": "#c1121f",
+            "Liquidity thin move": "#4f4f4f",
+            "Failed breakout": "#8f0d17",
+        })
+        marker_sizes.update({
+            "Support candidate": 13,
+            "Resistance candidate": 13,
+            "Short squeeze setup": 14,
+            "Short squeeze trigger": 16,
+            "Long squeeze setup": 14,
+            "Long squeeze trigger": 16,
+            "Tape-confirmed squeeze": 17,
+            "Liquidity thin move": 12,
+            "Failed breakout": 13,
+        })
+        marker_line_widths.update({
+            "Support candidate": 1.3,
+            "Resistance candidate": 1.3,
+            "Short squeeze setup": 1.4,
+            "Short squeeze trigger": 1.6,
+            "Long squeeze setup": 1.4,
+            "Long squeeze trigger": 1.6,
+            "Tape-confirmed squeeze": 1.7,
+            "Liquidity thin move": 1.2,
+            "Failed breakout": 1.5,
+        })
+
+        plotted_point_types = set()
+
         for point_type, group in important_points.groupby("type"):
+            plotted_point_types.add(point_type)
             fig.add_trace(
                 go.Scatter(
                     x=group["time_5m"],
@@ -718,6 +786,30 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
                 )
             except Exception:
                 pass
+
+        # Keep legend icons visible even when the current data has no point for that type.
+        # This avoids the impression that a symbol disappeared.
+        if legend_types is not None:
+            for point_type in legend_types:
+                if point_type not in plotted_point_types and point_type in marker_symbols:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[None],
+                            y=[None],
+                            mode="markers",
+                            marker=dict(
+                                size=marker_sizes.get(point_type, 13),
+                                color=marker_colors.get(point_type, "#111111"),
+                                symbol=marker_symbols.get(point_type, "circle"),
+                                line=dict(width=marker_line_widths.get(point_type, 1.3), color=marker_line_colors.get(point_type, "#111111"))
+                            ),
+                            name=point_type,
+                            hoverinfo="skip",
+                            showlegend=True
+                        ),
+                        row=1,
+                        col=1
+                    )
 
     # POC / Support / Resistance Candidatesの水平線
     if sr_levels is not None and len(sr_levels) > 0:
@@ -845,6 +937,31 @@ def make_5m_summary(df_range, confirm_vol_len=20, confirm_vol_mult=1.5, confirm_
         trade_count=("trade_id", "count")
     )
 
+    def _max_same_side_streak(side_series):
+        max_run = 0
+        current_run = 0
+        prev_side = None
+        for side in side_series.astype(str).tolist():
+            if side == prev_side:
+                current_run += 1
+            else:
+                current_run = 1
+                prev_side = side
+            max_run = max(max_run, current_run)
+        return max_run
+
+    same_side_streak = grouped["taker_side_estimate"].apply(_max_same_side_streak)
+    summary_5m["same_side_streak"] = same_side_streak.fillna(0).astype(int)
+
+    large_trade_threshold = df_range["size_BTC"].quantile(0.95) if len(df_range) > 0 else 0
+    large_trade_counts = (
+        df_range[df_range["size_BTC"] >= large_trade_threshold]
+        .groupby("time_5m")["size_BTC"]
+        .count()
+    )
+    summary_5m["large_trade_count"] = large_trade_counts.reindex(summary_5m.index).fillna(0).astype(int)
+    summary_5m["trade_velocity_per_min"] = summary_5m["trade_count"] / 5.0
+
     buy_5m = (
         df_range[df_range["taker_side_estimate"] == "buy"]
         .groupby("time_5m")["size_BTC"]
@@ -889,6 +1006,10 @@ def make_5m_summary(df_range, confirm_vol_len=20, confirm_vol_mult=1.5, confirm_
     summary_5m["delta_abs"] = summary_5m["delta_BTC"].abs()
     summary_5m["delta_strength"] = summary_5m["delta_abs"] / summary_5m["volume_BTC"]
     summary_5m["body_to_range"] = summary_5m["body_abs"] / summary_5m["range"].replace(0, pd.NA)
+    summary_5m["price_impact_per_BTC"] = summary_5m["body_abs"] / summary_5m["volume_BTC"].replace(0, pd.NA)
+    summary_5m["delta_impact_score"] = summary_5m["body_abs"] / summary_5m["delta_abs"].replace(0, pd.NA)
+    impact_rank = summary_5m["price_impact_per_BTC"].rank(pct=True).fillna(0)
+    summary_5m["liquidity_thin_score"] = (impact_rank * 100).round(1)
 
     # 価格が動いていない判定：実体が小さい
     # 15ドル以下、またはその足の値幅の35%以下なら「進みが弱い」と見る
@@ -1082,19 +1203,31 @@ def calculate_volume_profile_levels(df_range, current_price, price_round_digit, 
 # =========================================================
 
 def detect_important_points(summary_5m):
+    """Absorption-first classifier.
+
+    This app is not an entry engine. It classifies whether an absorption area later behaves as
+    support/resistance, squeeze setup, squeeze trigger, or tape-confirmed squeeze.
+    """
     rows = []
 
     if summary_5m is None or len(summary_5m) == 0:
         return pd.DataFrame()
 
     df = summary_5m.copy().reset_index()
-
     vol_threshold = df["volume_BTC"].quantile(0.80)
+    thin_threshold = df["liquidity_thin_score"].quantile(0.70) if "liquidity_thin_score" in df.columns else 70
 
-    for i, row in df.iterrows():
-        t = row["time_5m"]
-        base = {
-            "time_5m": t,
+    def safe_float(v, default=0.0):
+        try:
+            if pd.isna(v):
+                return default
+            return float(v)
+        except Exception:
+            return default
+
+    def base_from_row(row):
+        return {
+            "time_5m": row["time_5m"],
             "open": row["open"],
             "high": row["high"],
             "low": row["low"],
@@ -1106,196 +1239,249 @@ def detect_important_points(summary_5m):
             "buy_ratio_%": row["buy_ratio_%"],
             "sell_ratio_%": row["sell_ratio_%"],
             "candle_move": row["candle_move"],
-            "delta_strength": row.get("delta_strength", abs(row["delta_BTC"]) / row["volume_BTC"] if row["volume_BTC"] else 0),
+            "delta_strength": row.get("delta_strength", pd.NA),
             "price_not_moved": row.get("price_not_moved", False),
             "confirm_vol_avg": row.get("confirm_vol_avg", pd.NA),
             "confirm_vol_mult_actual": row.get("confirm_vol_mult_actual", pd.NA),
             "confirm_volume_ok": row.get("confirm_volume_ok", False),
+            "same_side_streak": int(row.get("same_side_streak", 0)),
+            "large_trade_count": int(row.get("large_trade_count", 0)),
+            "price_impact_per_BTC": safe_float(row.get("price_impact_per_BTC", 0)),
+            "liquidity_thin_score": safe_float(row.get("liquidity_thin_score", 0)),
+            "delta_impact_score": safe_float(row.get("delta_impact_score", 0)),
         }
 
-        if row["buy_absorption_candidate"]:
-            score = 80 + min(15, row.get("delta_strength", 0) * 30)
-            rows.append({
-                **base,
-                "type": "Buy absorption",
-                "score": round(score, 1),
-                "reason": f"sell delta {row['delta_BTC']:.2f} BTC に対して実体 {row['candle_move']:.2f} USD。sellが出ているのに下方向へ十分進んでいないため、Buy absorption候補。"
-            })
+    def add_point(row, point_type, score, reason, absorption_high=pd.NA, absorption_low=pd.NA,
+                  break_level=pd.NA, invalid_level=pd.NA, status="", tape_score=0,
+                  squeeze_confidence=0, memo="", spot_price=None):
+        base = base_from_row(row)
+        if spot_price is not None:
+            base["spot_price"] = spot_price
+        base.update({
+            "type": point_type,
+            "score": round(float(score), 1),
+            "reason": reason,
+            "absorption_high": absorption_high,
+            "absorption_low": absorption_low,
+            "break_level": break_level,
+            "invalid_level": invalid_level,
+            "support_or_resistance_status": status,
+            "tape_score": round(float(tape_score), 1),
+            "squeeze_confidence": round(float(squeeze_confidence), 1),
+            "memo": memo,
+        })
+        rows.append(base)
 
-        if row["bullish_confirmation"]:
-            mult = row.get("confirm_vol_mult_actual", 0)
-            score = 78 + min(18, max(0, float(mult) - 2.0) * 6)
-            rows.append({
-                **base,
-                "spot_price": row["low"] - max(row["range"] * 0.20, 8),
-                "type": "Buy confirmation",
-                "score": round(score, 1),
-                "reason": f"出来高 {row['volume_BTC']:.2f} BTC は直近平均の {mult:.2f}倍。価格/CVDのLookback方向が上向きで、delta +{row['delta_BTC']:.2f} BTC・値幅 +{row['candle_move']:.2f} USD が上方向に順行。Buy confirmation。"
-            })
+    def tape_score_for(row, direction):
+        # direction: "up" for short squeeze, "down" for long squeeze
+        if direction == "up":
+            side_ratio = safe_float(row.get("buy_ratio_%", 0))
+            delta_ok = row.get("delta_BTC", 0) > 0
+            price_ok = row.get("candle_move", 0) > 0
+        else:
+            side_ratio = safe_float(row.get("sell_ratio_%", 0))
+            delta_ok = row.get("delta_BTC", 0) < 0
+            price_ok = row.get("candle_move", 0) < 0
 
-        if row["sell_absorption_candidate"]:
-            score = 80 + min(15, row.get("delta_strength", 0) * 30)
-            rows.append({
-                **base,
-                "type": "Sell absorption",
-                "score": round(score, 1),
-                "reason": f"buy delta +{row['delta_BTC']:.2f} BTC に対して実体 {row['candle_move']:.2f} USD。buyが出ているのに上方向へ十分進んでいないため、Sell absorption候補。"
-            })
+        score = 0
+        score += min(30, max(0, side_ratio - 50) * 1.5)
+        score += min(20, safe_float(row.get("same_side_streak", 0)) * 2.0)
+        score += min(15, safe_float(row.get("large_trade_count", 0)) * 3.0)
+        score += min(20, safe_float(row.get("liquidity_thin_score", 0)) * 0.20)
+        score += 10 if delta_ok else 0
+        score += 5 if price_ok else 0
+        return min(100, score)
 
-        if row["bearish_confirmation"]:
-            mult = row.get("confirm_vol_mult_actual", 0)
-            score = 78 + min(18, max(0, float(mult) - 2.0) * 6)
-            rows.append({
-                **base,
-                "spot_price": row["high"] + max(row["range"] * 0.20, 8),
-                "type": "Sell confirmation",
-                "score": round(score, 1),
-                "reason": f"出来高 {row['volume_BTC']:.2f} BTC は直近平均の {mult:.2f}倍。価格/CVDのLookback方向が下向きで、delta {row['delta_BTC']:.2f} BTC・値幅 {row['candle_move']:.2f} USD が下方向に順行。Sell confirmation。"
-            })
+    lookahead = 6
 
-        if row["volume_BTC"] >= vol_threshold:
-            rows.append({
-                **base,
-                "type": "High volume",
-                "score": 60,
-                "reason": f"選択期間内で上位20%の出来高。出来高が集中している重要ポイント。"
-            })
-
-    # スクイーズ候補：吸収のあと数本以内に確認足が出たところを強調
     for i, row in df.iterrows():
-        future = df.iloc[i+1:i+4]
+        future = df.iloc[i+1:i+1+lookahead]
 
-        if row["buy_absorption_candidate"] and len(future) > 0 and future["bullish_confirmation"].any():
-            confirm = future[future["bullish_confirmation"]].iloc[0]
-            rows.append({
-                "time_5m": confirm["time_5m"],
-                "open": confirm["open"],
-                "high": confirm["high"],
-                "low": confirm["low"],
-                "close": confirm["close"],
-                "spot_price": confirm["close"],
-                "volume_BTC": confirm["volume_BTC"],
-                "delta_BTC": confirm["delta_BTC"],
-                "buy_ratio_%": confirm["buy_ratio_%"],
-                "sell_ratio_%": confirm["sell_ratio_%"],
-                "candle_move": confirm["candle_move"],
-                "type": "Short squeeze candidate",
-                "score": 95,
-                "reason": f"{row['time_5m']} のBuy absorption後、{confirm['time_5m']} でBuy confirmationが発生。Short squeeze候補。"
-            })
+        # sell delta absorbed: sell came in, price did not fall. This can become support or short squeeze setup.
+        if bool(row.get("buy_absorption_candidate", False)):
+            absorption_high = row["high"]
+            absorption_low = row["low"]
+            future_up = future[future["close"] > absorption_high]
+            future_down = future[future["close"] < absorption_low]
 
-        if row["sell_absorption_candidate"] and len(future) > 0 and future["bearish_confirmation"].any():
-            confirm = future[future["bearish_confirmation"]].iloc[0]
-            rows.append({
-                "time_5m": confirm["time_5m"],
-                "open": confirm["open"],
-                "high": confirm["high"],
-                "low": confirm["low"],
-                "close": confirm["close"],
-                "spot_price": confirm["close"],
-                "volume_BTC": confirm["volume_BTC"],
-                "delta_BTC": confirm["delta_BTC"],
-                "buy_ratio_%": confirm["buy_ratio_%"],
-                "sell_ratio_%": confirm["sell_ratio_%"],
-                "candle_move": confirm["candle_move"],
-                "type": "Long squeeze candidate",
-                "score": 95,
-                "reason": f"{row['time_5m']} のSell absorption後、{confirm['time_5m']} でSell confirmationが発生。Long squeeze候補。"
-            })
+            if len(future_up) > 0:
+                trigger = future_up.iloc[0]
+                tape = tape_score_for(trigger, "up")
+                confidence = 55 + min(35, tape * 0.35)
+                point_type = "Tape-confirmed squeeze" if tape >= 70 else "Short squeeze trigger"
+                add_point(
+                    trigger,
+                    point_type,
+                    score=90 if tape >= 70 else 84,
+                    reason=(
+                        f"{row['time_5m']} のsell吸収後、吸収足高値 {absorption_high:.2f} を上抜け。"
+                        f"buy比率 {trigger['buy_ratio_%']:.1f}%、delta {trigger['delta_BTC']:.2f} BTC、"
+                        f"tape_score {tape:.1f}。ショートが踏まれ始めた可能性。"
+                    ),
+                    absorption_high=absorption_high,
+                    absorption_low=absorption_low,
+                    break_level=absorption_high,
+                    invalid_level=absorption_low,
+                    status="吸収高値を上抜け。Short squeeze trigger。",
+                    tape_score=tape,
+                    squeeze_confidence=confidence,
+                    memo="sell吸収を起点に上方向へブレイク。テープ確認でスクイーズ確度を評価。",
+                    spot_price=trigger["close"]
+                )
+            elif len(future_down) > 0:
+                fail = future_down.iloc[0]
+                add_point(
+                    row,
+                    "Failed breakout",
+                    score=70,
+                    reason=f"sell吸収後に吸収足安値 {absorption_low:.2f} を下抜け。Support候補は失敗。",
+                    absorption_high=absorption_high,
+                    absorption_low=absorption_low,
+                    break_level=absorption_high,
+                    invalid_level=absorption_low,
+                    status="Support failed",
+                    tape_score=tape_score_for(fail, "down"),
+                    squeeze_confidence=0,
+                    memo="売り吸収が支えにならず、下に抜けた。スクイーズ候補ではなくSupport失敗。",
+                    spot_price=row["low"]
+                )
+            else:
+                add_point(
+                    row,
+                    "Support candidate",
+                    score=78 + min(15, safe_float(row.get("delta_strength", 0)) * 30),
+                    reason=(
+                        f"sell delta {row['delta_BTC']:.2f} BTC に対して実体 {row['candle_move']:.2f} USD。"
+                        f"sellが出ているのに下方向へ十分進まず、吸収足安値 {absorption_low:.2f} がSupport候補。"
+                    ),
+                    absorption_high=absorption_high,
+                    absorption_low=absorption_low,
+                    break_level=absorption_high,
+                    invalid_level=absorption_low,
+                    status="Support candidate / Short squeeze setup waiting",
+                    tape_score=tape_score_for(row, "up"),
+                    squeeze_confidence=35,
+                    memo="吸収足高値を上抜ければShort squeeze setup、安値割れならSupport失敗。",
+                    spot_price=row["low"]
+                )
 
-    # 追加ルール：Sell confirmation bars/ショート誘い込み後の強い上抜け
-    # これは「Buy absorption → Buy confirmation」では拾えないショートスクイーズ型を拾うため。
-    for i, row in df.iterrows():
-        if i == 0:
-            continue
+        # buy delta absorbed: buy came in, price did not rise. This can become resistance or long squeeze setup.
+        if bool(row.get("sell_absorption_candidate", False)):
+            absorption_high = row["high"]
+            absorption_low = row["low"]
+            future_down = future[future["close"] < absorption_low]
+            future_up = future[future["close"] > absorption_high]
 
-        prev = df.iloc[i - 1]
-        lookback = df.iloc[max(0, i - 6):i]
+            if len(future_down) > 0:
+                trigger = future_down.iloc[0]
+                tape = tape_score_for(trigger, "down")
+                confidence = 55 + min(35, tape * 0.35)
+                point_type = "Tape-confirmed squeeze" if tape >= 70 else "Long squeeze trigger"
+                add_point(
+                    trigger,
+                    point_type,
+                    score=90 if tape >= 70 else 84,
+                    reason=(
+                        f"{row['time_5m']} のbuy吸収後、吸収足安値 {absorption_low:.2f} を下抜け。"
+                        f"sell比率 {trigger['sell_ratio_%']:.1f}%、delta {trigger['delta_BTC']:.2f} BTC、"
+                        f"tape_score {tape:.1f}。ロングが投げ始めた可能性。"
+                    ),
+                    absorption_high=absorption_high,
+                    absorption_low=absorption_low,
+                    break_level=absorption_low,
+                    invalid_level=absorption_high,
+                    status="吸収安値を下抜け。Long squeeze trigger。",
+                    tape_score=tape,
+                    squeeze_confidence=confidence,
+                    memo="buy吸収を起点に下方向へブレイク。テープ確認でスクイーズ確度を評価。",
+                    spot_price=trigger["close"]
+                )
+            elif len(future_up) > 0:
+                fail = future_up.iloc[0]
+                add_point(
+                    row,
+                    "Failed breakout",
+                    score=70,
+                    reason=f"buy吸収後に吸収足高値 {absorption_high:.2f} を上抜け。Resistance候補は失敗。",
+                    absorption_high=absorption_high,
+                    absorption_low=absorption_low,
+                    break_level=absorption_low,
+                    invalid_level=absorption_high,
+                    status="Resistance failed",
+                    tape_score=tape_score_for(fail, "up"),
+                    squeeze_confidence=0,
+                    memo="買い吸収が抵抗にならず、上に抜けた。スクイーズ候補ではなくResistance失敗。",
+                    spot_price=row["high"]
+                )
+            else:
+                add_point(
+                    row,
+                    "Resistance candidate",
+                    score=78 + min(15, safe_float(row.get("delta_strength", 0)) * 30),
+                    reason=(
+                        f"buy delta +{row['delta_BTC']:.2f} BTC に対して実体 {row['candle_move']:.2f} USD。"
+                        f"buyが出ているのに上方向へ十分進まず、吸収足高値 {absorption_high:.2f} がResistance候補。"
+                    ),
+                    absorption_high=absorption_high,
+                    absorption_low=absorption_low,
+                    break_level=absorption_low,
+                    invalid_level=absorption_high,
+                    status="Resistance candidate / Long squeeze setup waiting",
+                    tape_score=tape_score_for(row, "down"),
+                    squeeze_confidence=35,
+                    memo="吸収足安値を下抜ければLong squeeze setup、高値上抜けならResistance失敗。",
+                    spot_price=row["high"]
+                )
 
-        if len(lookback) == 0:
-            continue
+        if bool(row.get("bullish_confirmation", False)):
+            add_point(
+                row,
+                "Buy confirmation",
+                score=72,
+                reason=f"出来高急増後、価格とCVDが上方向に同期。delta {row['delta_BTC']:.2f} BTC、値幅 {row['candle_move']:.2f} USD。",
+                status="Bull sync confirmation",
+                tape_score=tape_score_for(row, "up"),
+                squeeze_confidence=0,
+                memo="単体ではスクイーズではない。直前の吸収ブレイクと組み合わせて評価。",
+                spot_price=row["low"] - max(row.get("range", 0) * 0.20, 8)
+            )
 
-        previous_high = lookback["high"].max()
-        previous_low = lookback["low"].min()
-        recent_sell_pressure = (lookback["sell_ratio_%"] >= 60).any()
-        recent_buy_pressure = (lookback["buy_ratio_%"] >= 60).any()
+        if bool(row.get("bearish_confirmation", False)):
+            add_point(
+                row,
+                "Sell confirmation",
+                score=72,
+                reason=f"出来高急増後、価格とCVDが下方向に同期。delta {row['delta_BTC']:.2f} BTC、値幅 {row['candle_move']:.2f} USD。",
+                status="Bear sync confirmation",
+                tape_score=tape_score_for(row, "down"),
+                squeeze_confidence=0,
+                memo="単体ではスクイーズではない。直前の吸収ブレイクと組み合わせて評価。",
+                spot_price=row["high"] + max(row.get("range", 0) * 0.20, 8)
+            )
 
-        # Short squeeze candidate：直前に売り圧があり、その後にBuy confirmation＋直近高値上抜け
-        if (
-            row.get("bullish_confirmation", False) and
-            row["high"] > previous_high and
-            recent_sell_pressure
-        ):
-            rows.append({
-                "time_5m": row["time_5m"],
-                "open": row["open"],
-                "high": row["high"],
-                "low": row["low"],
-                "close": row["close"],
-                "spot_price": row["close"],
-                "volume_BTC": row["volume_BTC"],
-                "delta_BTC": row["delta_BTC"],
-                "buy_ratio_%": row["buy_ratio_%"],
-                "sell_ratio_%": row["sell_ratio_%"],
-                "candle_move": row["candle_move"],
-                "type": "Short squeeze candidate",
-                "score": 96,
-                "reason": f"直近にsell圧があった後、buy taker比率 {row['buy_ratio_%']:.1f}% で直近高値 {previous_high:.2f} を上抜け。Short squeeze候補。"
-            })
-
-        # ベアトラップ型：直前足が売り優勢、その次足で強い買い反転
-        if (
-            prev["sell_ratio_%"] >= 70 and
-            prev["candle_move"] <= 0 and
-            row.get("bullish_confirmation", False) and
-            row["close"] > prev["open"]
-        ):
-            rows.append({
-                "time_5m": row["time_5m"],
-                "open": row["open"],
-                "high": row["high"],
-                "low": row["low"],
-                "close": row["close"],
-                "spot_price": row["close"],
-                "volume_BTC": row["volume_BTC"],
-                "delta_BTC": row["delta_BTC"],
-                "buy_ratio_%": row["buy_ratio_%"],
-                "sell_ratio_%": row["sell_ratio_%"],
-                "candle_move": row["candle_move"],
-                "type": "Short squeeze candidate",
-                "score": 98,
-                "reason": f"直前足のsell taker比率が {prev['sell_ratio_%']:.1f}% で、ショートを誘い込んだ可能性。その直後にbuy taker比率 {row['buy_ratio_%']:.1f}% で上方向へ反転。ベアトラップ型Short squeeze候補。"
-            })
-
-        # Long squeeze candidate：直近に買い圧があり、その後にSell confirmation＋直近安値割れ
-        if (
-            row.get("bearish_confirmation", False) and
-            row["low"] < previous_low and
-            recent_buy_pressure
-        ):
-            rows.append({
-                "time_5m": row["time_5m"],
-                "open": row["open"],
-                "high": row["high"],
-                "low": row["low"],
-                "close": row["close"],
-                "spot_price": row["close"],
-                "volume_BTC": row["volume_BTC"],
-                "delta_BTC": row["delta_BTC"],
-                "buy_ratio_%": row["buy_ratio_%"],
-                "sell_ratio_%": row["sell_ratio_%"],
-                "candle_move": row["candle_move"],
-                "type": "Long squeeze candidate",
-                "score": 96,
-                "reason": f"直近にbuy圧があった後、sell taker比率 {row['sell_ratio_%']:.1f}% で直近安値 {previous_low:.2f} を下抜け。Long squeeze候補。"
-            })
+        if safe_float(row.get("liquidity_thin_score", 0)) >= thin_threshold and row["volume_BTC"] < vol_threshold:
+            add_point(
+                row,
+                "Liquidity thin move",
+                score=62,
+                reason=(
+                    f"少ない出来高に対して価格インパクトが大きい。"
+                    f"impact_per_BTC {safe_float(row.get('price_impact_per_BTC', 0)):.2f}、"
+                    f"liquidity_thin_score {safe_float(row.get('liquidity_thin_score', 0)):.1f}。"
+                ),
+                status="Liquidity thin / not squeeze by itself",
+                tape_score=max(tape_score_for(row, "up"), tape_score_for(row, "down")),
+                squeeze_confidence=0,
+                memo="流動性が薄い可能性。吸収起点のブレイクと重なる場合のみスクイーズ材料。",
+                spot_price=row["close"]
+            )
 
     if not rows:
         return pd.DataFrame()
 
     points = pd.DataFrame(rows)
-    points = points.drop_duplicates(subset=["time_5m", "type"])
-    points = points.sort_values(["score", "volume_BTC"], ascending=False).reset_index(drop=True)
+    points = points.drop_duplicates(subset=["time_5m", "type", "absorption_high", "absorption_low"])
+    points = points.sort_values(["score", "tape_score", "volume_BTC"], ascending=False).reset_index(drop=True)
 
     points["No"] = range(1, len(points) + 1)
     points["point_id"] = points.apply(
@@ -1307,41 +1493,22 @@ def detect_important_points(summary_5m):
         axis=1
     )
 
-    # Icon rail placement:
-    # Do not stack icons directly on price. Put them slightly above bullish/neutral candles,
-    # and below bearish candles. Multiple icons on the same bar are lined up with slots.
     points["icon_side"] = points["candle_move"].apply(lambda x: "below" if x < 0 else "above")
-
     points = points.sort_values(["time_5m", "icon_side", "score"], ascending=[True, True, False]).reset_index(drop=True)
     points["icon_slot"] = points.groupby(["time_5m", "icon_side"]).cumcount()
 
     def _icon_y(r):
-        bar_range = max(float(r["high"] - r["low"]), 1.0)
-        step = max(bar_range * 0.16, 10.0)
+        row_range = r["high"] - r["low"]
+        pad = max(row_range * 0.22, 18)
+        step = max(row_range * 0.16, 12)
         if r["icon_side"] == "below":
-            return float(r["low"] - step * (r["icon_slot"] + 1))
-        return float(r["high"] + step * (r["icon_slot"] + 1))
+            return r["low"] - pad - r["icon_slot"] * step
+        return r["high"] + pad + r["icon_slot"] * step
 
-    points["spot_price"] = points.apply(_icon_y, axis=1)
-
-    # Re-sort by importance for the table after calculating rail positions.
-    points = points.sort_values(["score", "volume_BTC"], ascending=False).reset_index(drop=True)
-    points["No"] = range(1, len(points) + 1)
-    points["point_id"] = points.apply(
-        lambda r: f"{r['time_5m'].isoformat()}__{r['type']}__{r['No']}",
-        axis=1
-    )
-    points["label"] = points.apply(
-        lambda r: f"{int(r['No'])}. {r['time_5m'].strftime('%m/%d %H:%M')} | {r['type']} | score {r['score']} | close {r['close']:.2f}",
-        axis=1
-    )
+    points["icon_y"] = points.apply(_icon_y, axis=1)
 
     return points
 
-
-# =========================================================
-# 特定5分足の詳細解析
-# =========================================================
 
 def analyze_detail_5m(df_range, detail_start, price_round_digit):
     detail_end = detail_start + pd.Timedelta(minutes=5)
@@ -1577,23 +1744,24 @@ def render_analysis(data):
         display_points["Focus"] = display_points["point_id"] == st.session_state["selected_point_id"]
         display_points["time"] = display_points["time_5m"].dt.strftime("%m/%d %H:%M")
 
-        editor_df = display_points[[
+        editor_columns = [
             "Focus", "No", "time", "type", "score", "reason",
+            "support_or_resistance_status", "squeeze_confidence", "tape_score",
+            "absorption_high", "absorption_low", "break_level", "invalid_level",
+            "price_impact_per_BTC", "liquidity_thin_score", "delta_impact_score",
+            "same_side_streak", "large_trade_count", "memo",
             "open", "high", "low", "close",
             "volume_BTC", "delta_BTC",
             "buy_ratio_%", "sell_ratio_%"
-        ]]
+        ]
+        editor_columns = [c for c in editor_columns if c in display_points.columns]
+        editor_df = display_points[editor_columns]
 
         edited_points = st.data_editor(
             editor_df,
             use_container_width=True,
             hide_index=True,
-            disabled=[
-                "No", "time", "type", "score", "reason",
-                "open", "high", "low", "close",
-                "volume_BTC", "delta_BTC",
-                "buy_ratio_%", "sell_ratio_%"
-            ],
+            disabled=[c for c in editor_df.columns if c != "Focus"],
             column_config={
                 "Focus": st.column_config.CheckboxColumn(
                     "Focus",
@@ -1638,7 +1806,8 @@ def render_analysis(data):
         product_id,
         important_points=chart_points,
         selected_point=selected_point,
-        sr_levels=sr_levels
+        sr_levels=sr_levels,
+        legend_types=visible_icon_types
     )
 
     if selected_point is not None:
@@ -1649,6 +1818,8 @@ def render_analysis(data):
                 <div class="metric-value">{selected_point['label']}</div>
                 <div class="metric-label" style="margin-top:6px;">Reason</div>
                 <div style="font-size:11px; line-height:1.45; color:#c8c3b8;">{selected_point['reason']}</div>
+                <div class="metric-label" style="margin-top:6px;">Status / Memo</div>
+                <div style="font-size:11px; line-height:1.45; color:#c8c3b8;">{selected_point.get('support_or_resistance_status', '')}<br>{selected_point.get('memo', '')}</div>
             </div>
             """,
             unsafe_allow_html=True
