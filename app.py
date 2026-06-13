@@ -316,6 +316,12 @@ def safe_float_input(value, default, min_value=None, max_value=None):
 # サイドバー入力
 # =========================================================
 
+if "detail_5m_start_str" not in st.session_state:
+    st.session_state["detail_5m_start_str"] = "2026-06-13 20:55:00"
+
+if "pending_detail_5m_start_str" in st.session_state:
+    st.session_state["detail_5m_start_str"] = st.session_state.pop("pending_detail_5m_start_str")
+
 with st.sidebar:
     st.markdown(
         """
@@ -351,7 +357,7 @@ with st.sidebar:
 
     detail_5m_start_str = st.text_input(
         "Selected 5m Bar JST",
-        value="2026-06-13 20:55:00"
+        key="detail_5m_start_str"
     )
 
     price_round_digit = st.selectbox(
@@ -1304,6 +1310,27 @@ def detect_important_points(summary_5m):
             future_up = future[future["close"] > absorption_high]
             future_down = future[future["close"] < absorption_low]
 
+            setup_tape = tape_score_for(row, "up")
+            setup_confidence = min(75, 35 + setup_tape * 0.35)
+            add_point(
+                row,
+                "Short squeeze setup",
+                score=82,
+                reason=(
+                    f"sell吸収を確認。sell delta {row['delta_BTC']:.2f} BTC に対して価格が下に進んでいない。"
+                    f"吸収足高値 {absorption_high:.2f} 上抜けでShort squeeze trigger候補。"
+                ),
+                absorption_high=absorption_high,
+                absorption_low=absorption_low,
+                break_level=absorption_high,
+                invalid_level=absorption_low,
+                status="Short squeeze setup / waiting for absorption high break",
+                tape_score=setup_tape,
+                squeeze_confidence=setup_confidence,
+                memo="このアイコンはスクイーズ予兆。自動でSelected 5m Bar JSTへ送る対象。",
+                spot_price=row["high"]
+            )
+
             if len(future_up) > 0:
                 trigger = future_up.iloc[0]
                 tape = tape_score_for(trigger, "up")
@@ -1371,6 +1398,27 @@ def detect_important_points(summary_5m):
             absorption_low = row["low"]
             future_down = future[future["close"] < absorption_low]
             future_up = future[future["close"] > absorption_high]
+
+            setup_tape = tape_score_for(row, "down")
+            setup_confidence = min(75, 35 + setup_tape * 0.35)
+            add_point(
+                row,
+                "Long squeeze setup",
+                score=82,
+                reason=(
+                    f"buy吸収を確認。buy delta +{row['delta_BTC']:.2f} BTC に対して価格が上に進んでいない。"
+                    f"吸収足安値 {absorption_low:.2f} 下抜けでLong squeeze trigger候補。"
+                ),
+                absorption_high=absorption_high,
+                absorption_low=absorption_low,
+                break_level=absorption_low,
+                invalid_level=absorption_high,
+                status="Long squeeze setup / waiting for absorption low break",
+                tape_score=setup_tape,
+                squeeze_confidence=setup_confidence,
+                memo="このアイコンはスクイーズ予兆。自動でSelected 5m Bar JSTへ送る対象。",
+                spot_price=row["low"]
+            )
 
             if len(future_down) > 0:
                 trigger = future_down.iloc[0]
@@ -1787,6 +1835,19 @@ def render_analysis(data):
             important_points["point_id"] == st.session_state["selected_point_id"]
         ].iloc[0]
 
+        auto_detail_types = {
+            "Short squeeze setup",
+            "Long squeeze setup",
+            "Short squeeze trigger",
+            "Long squeeze trigger",
+            "Tape-confirmed squeeze",
+        }
+        if selected_point["type"] in auto_detail_types:
+            auto_detail_time = selected_point["time_5m"].strftime("%Y-%m-%d %H:%M:%S")
+            if st.session_state.get("detail_5m_start_str") != auto_detail_time:
+                st.session_state["pending_detail_5m_start_str"] = auto_detail_time
+                st.rerun()
+
     st.subheader("Coinbase 5m Chart")
 
     chart_points = important_points
@@ -1816,6 +1877,8 @@ def render_analysis(data):
             <div class="metric-card">
                 <div class="metric-label">Selected Point Details</div>
                 <div class="metric-value">{selected_point['label']}</div>
+                <div class="metric-label" style="margin-top:6px;">Squeeze Probability</div>
+                <div class="metric-value">{float(selected_point.get('squeeze_confidence', 0)):.1f}%</div>
                 <div class="metric-label" style="margin-top:6px;">Reason</div>
                 <div style="font-size:11px; line-height:1.45; color:#c8c3b8;">{selected_point['reason']}</div>
                 <div class="metric-label" style="margin-top:6px;">Status / Memo</div>
