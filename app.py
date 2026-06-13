@@ -585,7 +585,13 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
         zerolinecolor="#2a2e39"
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    return st.plotly_chart(
+        fig,
+        use_container_width=True,
+        key="main_chart",
+        on_select="rerun",
+        selection_mode="points"
+    )
 
 
 # =========================================================
@@ -886,6 +892,96 @@ def detect_important_points(summary_5m):
                 "reason": f"{row['time_5m']}の売り吸収後、{confirm['time_5m']}で売り確認。ロングスクイーズ候補。"
             })
 
+    # 追加ルール：売り確認足/ショート誘い込み後の強い上抜け
+    # これは「買い吸収 → 買い確認」では拾えないショートスクイーズ型を拾うため。
+    for i, row in df.iterrows():
+        if i == 0:
+            continue
+
+        prev = df.iloc[i - 1]
+        lookback = df.iloc[max(0, i - 6):i]
+
+        if len(lookback) == 0:
+            continue
+
+        previous_high = lookback["high"].max()
+        previous_low = lookback["low"].min()
+        recent_sell_pressure = (lookback["sell_ratio_%"] >= 60).any()
+        recent_buy_pressure = (lookback["buy_ratio_%"] >= 60).any()
+
+        # ショートスクイーズ候補：直前に売り圧があり、その後に買い確認＋直近高値上抜け
+        if (
+            row["buy_ratio_%"] >= 65 and
+            row["candle_move"] > 0 and
+            row["high"] > previous_high and
+            recent_sell_pressure
+        ):
+            rows.append({
+                "time_5m": row["time_5m"],
+                "open": row["open"],
+                "high": row["high"],
+                "low": row["low"],
+                "close": row["close"],
+                "spot_price": row["close"],
+                "volume_BTC": row["volume_BTC"],
+                "delta_BTC": row["delta_BTC"],
+                "buy_ratio_%": row["buy_ratio_%"],
+                "sell_ratio_%": row["sell_ratio_%"],
+                "candle_move": row["candle_move"],
+                "type": "ショートスクイーズ候補",
+                "score": 96,
+                "reason": f"直近に売り圧があった後、買い成行{row['buy_ratio_%']:.1f}%で直近高値{previous_high:.2f}を上抜け。ショートスクイーズ候補。"
+            })
+
+        # ベアトラップ型：直前足が売り優勢、その次足で強い買い反転
+        if (
+            prev["sell_ratio_%"] >= 70 and
+            prev["candle_move"] <= 0 and
+            row["buy_ratio_%"] >= 65 and
+            row["candle_move"] > 0 and
+            row["close"] > prev["open"]
+        ):
+            rows.append({
+                "time_5m": row["time_5m"],
+                "open": row["open"],
+                "high": row["high"],
+                "low": row["low"],
+                "close": row["close"],
+                "spot_price": row["close"],
+                "volume_BTC": row["volume_BTC"],
+                "delta_BTC": row["delta_BTC"],
+                "buy_ratio_%": row["buy_ratio_%"],
+                "sell_ratio_%": row["sell_ratio_%"],
+                "candle_move": row["candle_move"],
+                "type": "ショートスクイーズ候補",
+                "score": 98,
+                "reason": f"直前足が売り成行{prev['sell_ratio_%']:.1f}%でショート誘い込み。その直後に買い成行{row['buy_ratio_%']:.1f}%で反転上昇。ベアトラップ型ショートスクイーズ候補。"
+            })
+
+        # ロングスクイーズ候補：直近に買い圧があり、その後に売り確認＋直近安値割れ
+        if (
+            row["sell_ratio_%"] >= 65 and
+            row["candle_move"] < 0 and
+            row["low"] < previous_low and
+            recent_buy_pressure
+        ):
+            rows.append({
+                "time_5m": row["time_5m"],
+                "open": row["open"],
+                "high": row["high"],
+                "low": row["low"],
+                "close": row["close"],
+                "spot_price": row["close"],
+                "volume_BTC": row["volume_BTC"],
+                "delta_BTC": row["delta_BTC"],
+                "buy_ratio_%": row["buy_ratio_%"],
+                "sell_ratio_%": row["sell_ratio_%"],
+                "candle_move": row["candle_move"],
+                "type": "ロングスクイーズ候補",
+                "score": 96,
+                "reason": f"直近に買い圧があった後、売り成行{row['sell_ratio_%']:.1f}%で直近安値{previous_low:.2f}を下抜け。ロングスクイーズ候補。"
+            })
+
     if not rows:
         return pd.DataFrame()
 
@@ -893,8 +989,13 @@ def detect_important_points(summary_5m):
     points = points.drop_duplicates(subset=["time_5m", "type"])
     points = points.sort_values(["score", "volume_BTC"], ascending=False).reset_index(drop=True)
 
+    points["No"] = range(1, len(points) + 1)
+    points["point_id"] = points.apply(
+        lambda r: f"{r['time_5m'].isoformat()}__{r['type']}__{r['No']}",
+        axis=1
+    )
     points["label"] = points.apply(
-        lambda r: f"{r['time_5m'].strftime('%m/%d %H:%M')}｜{r['type']}｜score {r['score']}｜close {r['close']:.2f}",
+        lambda r: f"{int(r['No'])}. {r['time_5m'].strftime('%m/%d %H:%M')}｜{r['type']}｜score {r['score']}｜close {r['close']:.2f}",
         axis=1
     )
 
@@ -1082,18 +1183,60 @@ def render_analysis(data):
     selected_point = None
 
     if len(important_points) > 0:
-        st.subheader("重要ポイントピックアップ")
-        selected_label = st.radio(
-            "クリックするとチャート上で該当ローソクをスポット表示します。※クリックだけでは再取得しません。",
-            important_points["label"].tolist(),
-            index=0,
-            horizontal=False,
-            key="selected_important_point"
+        valid_ids = important_points["point_id"].tolist()
+
+        if "selected_point_id" not in st.session_state or st.session_state["selected_point_id"] not in valid_ids:
+            st.session_state["selected_point_id"] = valid_ids[0]
+
+        st.subheader("重要ポイント一覧")
+
+        display_points = important_points.copy()
+        display_points["selected"] = display_points["point_id"].apply(
+            lambda x: "🎯" if x == st.session_state["selected_point_id"] else ""
         )
-        selected_point = important_points[important_points["label"] == selected_label].iloc[0]
+        display_points["time"] = display_points["time_5m"].dt.strftime("%m/%d %H:%M")
+
+        table_event = st.dataframe(
+            display_points[[
+                "selected", "No", "time", "type", "score", "reason",
+                "open", "high", "low", "close",
+                "volume_BTC", "delta_BTC",
+                "buy_ratio_%", "sell_ratio_%"
+            ]],
+            use_container_width=True,
+            hide_index=True,
+            on_select="rerun",
+            selection_mode="single-row",
+            key="important_points_table"
+        )
+
+        try:
+            selected_rows = table_event.selection.rows
+        except Exception:
+            selected_rows = []
+
+        if selected_rows:
+            row_no = selected_rows[0]
+            new_point_id = important_points.iloc[row_no]["point_id"]
+            if new_point_id != st.session_state["selected_point_id"]:
+                st.session_state["selected_point_id"] = new_point_id
+
+        selected_point = important_points[
+            important_points["point_id"] == st.session_state["selected_point_id"]
+        ].iloc[0]
+
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <div class="metric-label">Selected Point</div>
+                <div class="metric-value">{selected_point['label']}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
     st.subheader("Coinbase 5分足チャート")
-    show_candlestick_chart(
+    chart_event = show_candlestick_chart(
         df_candles,
         product_id,
         important_points=important_points,
@@ -1101,17 +1244,27 @@ def render_analysis(data):
         sr_levels=sr_levels
     )
 
+    # チャート上の重要ポイントマーカーをクリックした場合、一覧側にも反映
     if len(important_points) > 0:
-        st.subheader("重要ポイント一覧")
-        st.dataframe(
-            important_points[[
-                "time_5m", "type", "score", "reason",
-                "open", "high", "low", "close",
-                "volume_BTC", "delta_BTC",
-                "buy_ratio_%", "sell_ratio_%"
-            ]],
-            use_container_width=True
-        )
+        try:
+            selected_points = chart_event.selection.points
+        except Exception:
+            selected_points = []
+
+        if selected_points:
+            clicked = selected_points[0]
+            clicked_x = pd.Timestamp(clicked.get("x"))
+            clicked_y = float(clicked.get("y"))
+
+            candidates = important_points.copy()
+            candidates["time_diff"] = (candidates["time_5m"] - clicked_x).abs()
+            candidates["price_diff"] = (candidates["spot_price"] - clicked_y).abs()
+            matched = candidates.sort_values(["time_diff", "price_diff"]).iloc[0]
+            new_point_id = matched["point_id"]
+
+            if new_point_id != st.session_state.get("selected_point_id"):
+                st.session_state["selected_point_id"] = new_point_id
+                st.rerun()
 
     if len(sr_levels) > 0:
         st.subheader("POC / サポート / レジスタンス候補")
