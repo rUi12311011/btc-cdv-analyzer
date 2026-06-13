@@ -236,6 +236,15 @@ st.markdown(
         display: block;
     }
 
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] {
+        gap: 0.35rem;
+    }
+
+    [data-testid="stSidebar"] .stCheckbox label {
+        font-size: 11px !important;
+        white-space: nowrap;
+    }
+
     .tiny-status {
         display: inline-block;
         background-color: #101012;
@@ -274,6 +283,34 @@ st.markdown(
 
 
 # =========================================================
+# 入力変換ヘルパー
+# =========================================================
+
+def safe_int_input(value, default, min_value=None, max_value=None):
+    try:
+        v = int(float(str(value).strip()))
+    except Exception:
+        v = default
+    if min_value is not None:
+        v = max(min_value, v)
+    if max_value is not None:
+        v = min(max_value, v)
+    return v
+
+
+def safe_float_input(value, default, min_value=None, max_value=None):
+    try:
+        v = float(str(value).strip())
+    except Exception:
+        v = default
+    if min_value is not None:
+        v = max(min_value, v)
+    if max_value is not None:
+        v = min(max_value, v)
+    return v
+
+
+# =========================================================
 # サイドバー入力
 # =========================================================
 
@@ -307,13 +344,8 @@ with st.sidebar:
 
     product_id = st.text_input("Product ID", value="BTC-USD")
 
-    hours_back = st.number_input(
-        "Hours Back",
-        min_value=1,
-        max_value=24,
-        value=6,
-        step=1
-    )
+    hours_back_raw = st.text_input("Hours Back", value="6")
+    hours_back = safe_int_input(hours_back_raw, default=6, min_value=1, max_value=24)
 
     detail_5m_start_str = st.text_input(
         "Selected 5m Bar JST",
@@ -334,6 +366,27 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### Visible Icons")
 
+    visible_icon_types = []
+    icon_col1, icon_col2 = st.columns(2)
+
+    with icon_col1:
+        if st.checkbox("△ Buy Abs", value=True, key="vis_buy_abs"):
+            visible_icon_types.append("Buy absorption")
+        if st.checkbox("+ Buy Conf", value=True, key="vis_buy_conf"):
+            visible_icon_types.append("Buy confirmation")
+        if st.checkbox("★ Short", value=True, key="vis_short_sqz"):
+            visible_icon_types.append("Short squeeze candidate")
+        if st.checkbox("◇ High", value=True, key="vis_high_vol"):
+            visible_icon_types.append("High volume")
+
+    with icon_col2:
+        if st.checkbox("▼ Sell Abs", value=True, key="vis_sell_abs"):
+            visible_icon_types.append("Sell absorption")
+        if st.checkbox("− Sell Conf", value=True, key="vis_sell_conf"):
+            visible_icon_types.append("Sell confirmation")
+        if st.checkbox("✳ Long", value=True, key="vis_long_sqz"):
+            visible_icon_types.append("Long squeeze candidate")
+
     icon_type_options = [
         "Buy absorption",
         "Sell absorption",
@@ -344,52 +397,17 @@ with st.sidebar:
         "High volume",
     ]
 
-    icon_type_labels = {
-        "Buy absorption": "△ Buy Abs",
-        "Sell absorption": "▼ Sell Abs",
-        "Buy confirmation": "+ Buy Conf",
-        "Sell confirmation": "− Sell Conf",
-        "Short squeeze candidate": "★ Short Sqz",
-        "Long squeeze candidate": "✳ Long Sqz",
-        "High volume": "◇ High Vol",
-    }
-
-    visible_icon_labels = st.multiselect(
-        "Icon Types",
-        options=[icon_type_labels[t] for t in icon_type_options],
-        default=[icon_type_labels[t] for t in icon_type_options],
-        help="Select one or more icon types to display on the chart."
-    )
-
-    label_to_type = {v: k for k, v in icon_type_labels.items()}
-    visible_icon_types = [label_to_type[label] for label in visible_icon_labels]
-
     st.markdown("---")
     st.markdown("### Confirmation / Sync Rules")
 
-    confirm_vol_len = st.number_input(
-        "Volume MA Length",
-        min_value=5,
-        max_value=200,
-        value=20,
-        step=1
-    )
+    confirm_vol_len_raw = st.text_input("Volume MA Length", value="20")
+    confirm_vol_len = safe_int_input(confirm_vol_len_raw, default=20, min_value=5, max_value=200)
 
-    confirm_vol_mult = st.number_input(
-        "Volume Surge Multiplier",
-        min_value=0.5,
-        max_value=10.0,
-        value=1.5,
-        step=0.1
-    )
+    confirm_vol_mult_raw = st.text_input("Volume Surge Multiplier", value="1.5")
+    confirm_vol_mult = safe_float_input(confirm_vol_mult_raw, default=1.5, min_value=0.5, max_value=10.0)
 
-    confirm_lookback = st.number_input(
-        "CVD/Price Lookback Bars",
-        min_value=1,
-        max_value=50,
-        value=3,
-        step=1
-    )
+    confirm_lookback_raw = st.text_input("CVD/Price Lookback Bars", value="3")
+    confirm_lookback = safe_int_input(confirm_lookback_raw, default=3, min_value=1, max_value=50)
 
     confirm_require_full_window = st.checkbox(
         "Require Full MA Window",
