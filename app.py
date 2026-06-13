@@ -1059,7 +1059,7 @@ def calculate_volume_profile_levels(df_range, current_price, price_round_digit, 
             "price": float(r["price_bin"]),
             "volume_BTC": float(r["size_BTC"]),
             "distance_from_current": float(r["price_bin"] - current_price),
-            "memo": "High-volume area below current price. Support candidate."
+            "memo": "現在値より下にある出来高集中帯。Support候補。"
         })
 
     for _, r in resistances.iterrows():
@@ -1068,7 +1068,7 @@ def calculate_volume_profile_levels(df_range, current_price, price_round_digit, 
             "price": float(r["price_bin"]),
             "volume_BTC": float(r["size_BTC"]),
             "distance_from_current": float(r["price_bin"] - current_price),
-            "memo": "High-volume area above current price. Resistance candidate."
+            "memo": "現在値より上にある出来高集中帯。Resistance候補。"
         })
 
     sr_levels = pd.DataFrame(levels)
@@ -1119,7 +1119,7 @@ def detect_important_points(summary_5m):
                 **base,
                 "type": "Buy absorption",
                 "score": round(score, 1),
-                "reason": f"Sell delta {row['delta_BTC']:.2f} BTC vs body {row['candle_move']:.2f} USD. Sell flow appeared, but price did not move down enough. Buy absorption candidate."
+                "reason": f"sell delta {row['delta_BTC']:.2f} BTC に対して実体 {row['candle_move']:.2f} USD。sellが出ているのに下方向へ十分進んでいないため、Buy absorption候補。"
             })
 
         if row["bullish_confirmation"]:
@@ -1130,7 +1130,7 @@ def detect_important_points(summary_5m):
                 "spot_price": row["low"] - max(row["range"] * 0.20, 8),
                 "type": "Buy confirmation",
                 "score": round(score, 1),
-                "reason": f"Volume {row['volume_BTC']:.2f} BTC is {mult:.2f}x the recent average. Price/CVD lookback is up, with delta +{row['delta_BTC']:.2f} BTC and candle move +{row['candle_move']:.2f} USD aligned upward. Buy confirmation."
+                "reason": f"出来高 {row['volume_BTC']:.2f} BTC は直近平均の {mult:.2f}倍。価格/CVDのLookback方向が上向きで、delta +{row['delta_BTC']:.2f} BTC・値幅 +{row['candle_move']:.2f} USD が上方向に順行。Buy confirmation。"
             })
 
         if row["sell_absorption_candidate"]:
@@ -1139,7 +1139,7 @@ def detect_important_points(summary_5m):
                 **base,
                 "type": "Sell absorption",
                 "score": round(score, 1),
-                "reason": f"Buy delta +{row['delta_BTC']:.2f} BTC vs body {row['candle_move']:.2f} USD. Buy flow appeared, but price did not move up enough. Sell absorption candidate."
+                "reason": f"buy delta +{row['delta_BTC']:.2f} BTC に対して実体 {row['candle_move']:.2f} USD。buyが出ているのに上方向へ十分進んでいないため、Sell absorption候補。"
             })
 
         if row["bearish_confirmation"]:
@@ -1150,7 +1150,7 @@ def detect_important_points(summary_5m):
                 "spot_price": row["high"] + max(row["range"] * 0.20, 8),
                 "type": "Sell confirmation",
                 "score": round(score, 1),
-                "reason": f"Volume {row['volume_BTC']:.2f} BTC is {mult:.2f}x the recent average. Price/CVD lookback is down, with delta {row['delta_BTC']:.2f} BTC and candle move {row['candle_move']:.2f} USD aligned downward. Sell confirmation."
+                "reason": f"出来高 {row['volume_BTC']:.2f} BTC は直近平均の {mult:.2f}倍。価格/CVDのLookback方向が下向きで、delta {row['delta_BTC']:.2f} BTC・値幅 {row['candle_move']:.2f} USD が下方向に順行。Sell confirmation。"
             })
 
         if row["volume_BTC"] >= vol_threshold:
@@ -1158,7 +1158,7 @@ def detect_important_points(summary_5m):
                 **base,
                 "type": "High volume",
                 "score": 60,
-                "reason": f"Top 20% volume within the selected period. High-volume point."
+                "reason": f"選択期間内で上位20%の出来高。出来高が集中している重要ポイント。"
             })
 
     # スクイーズ候補：吸収のあと数本以内に確認足が出たところを強調
@@ -1181,7 +1181,7 @@ def detect_important_points(summary_5m):
                 "candle_move": confirm["candle_move"],
                 "type": "Short squeeze candidate",
                 "score": 95,
-                "reason": f"After Buy absorption at {row['time_5m']}, Buy confirmation appeared at {confirm['time_5m']}. Short squeeze candidate."
+                "reason": f"{row['time_5m']} のBuy absorption後、{confirm['time_5m']} でBuy confirmationが発生。Short squeeze候補。"
             })
 
         if row["sell_absorption_candidate"] and len(future) > 0 and future["bearish_confirmation"].any():
@@ -1200,7 +1200,7 @@ def detect_important_points(summary_5m):
                 "candle_move": confirm["candle_move"],
                 "type": "Long squeeze candidate",
                 "score": 95,
-                "reason": f"After Sell absorption at {row['time_5m']}, Sell confirmation appeared at {confirm['time_5m']}. Long squeeze candidate."
+                "reason": f"{row['time_5m']} のSell absorption後、{confirm['time_5m']} でSell confirmationが発生。Long squeeze候補。"
             })
 
     # 追加ルール：Sell confirmation bars/ショート誘い込み後の強い上抜け
@@ -1240,7 +1240,7 @@ def detect_important_points(summary_5m):
                 "candle_move": row["candle_move"],
                 "type": "Short squeeze candidate",
                 "score": 96,
-                "reason": f"After recent sell pressure, buy taker ratio reached {row['buy_ratio_%']:.1f}% and price broke above recent high {previous_high:.2f}. Short squeeze candidate."
+                "reason": f"直近にsell圧があった後、buy taker比率 {row['buy_ratio_%']:.1f}% で直近高値 {previous_high:.2f} を上抜け。Short squeeze候補。"
             })
 
         # ベアトラップ型：直前足が売り優勢、その次足で強い買い反転
@@ -1264,7 +1264,7 @@ def detect_important_points(summary_5m):
                 "candle_move": row["candle_move"],
                 "type": "Short squeeze candidate",
                 "score": 98,
-                "reason": f"Previous bar had sell taker ratio {prev['sell_ratio_%']:.1f}%, likely trapping shorts. Next bar reversed upward with buy taker ratio {row['buy_ratio_%']:.1f}%. Bear-trap short squeeze candidate."
+                "reason": f"直前足のsell taker比率が {prev['sell_ratio_%']:.1f}% で、ショートを誘い込んだ可能性。その直後にbuy taker比率 {row['buy_ratio_%']:.1f}% で上方向へ反転。ベアトラップ型Short squeeze候補。"
             })
 
         # Long squeeze candidate：直近に買い圧があり、その後にSell confirmation＋直近安値割れ
@@ -1287,7 +1287,7 @@ def detect_important_points(summary_5m):
                 "candle_move": row["candle_move"],
                 "type": "Long squeeze candidate",
                 "score": 96,
-                "reason": f"After recent buy pressure, sell taker ratio reached {row['sell_ratio_%']:.1f}% and price broke below recent low {previous_low:.2f}. Long squeeze candidate."
+                "reason": f"直近にbuy圧があった後、sell taker比率 {row['sell_ratio_%']:.1f}% で直近安値 {previous_low:.2f} を下抜け。Long squeeze候補。"
             })
 
     if not rows:
