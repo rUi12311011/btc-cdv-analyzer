@@ -573,8 +573,8 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
         marker_symbols = {
             "Buy absorption": "triangle-up-open",
             "Sell absorption": "triangle-down",
-            "Buy confirmation": "cross",
-            "Sell confirmation": "line-ew",
+            "Buy confirmation": "cross-open",
+            "Sell confirmation": "line-ew-open",
             "Short squeeze candidate": "star",
             "Long squeeze candidate": "asterisk",
             "High volume": "diamond-open"
@@ -590,6 +590,26 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             "High volume": "#4f4f4f"
         }
 
+        marker_sizes = {
+            "Buy absorption": 13,
+            "Sell absorption": 13,
+            "Buy confirmation": 16,
+            "Sell confirmation": 20,
+            "Short squeeze candidate": 15,
+            "Long squeeze candidate": 15,
+            "High volume": 12
+        }
+
+        marker_line_widths = {
+            "Buy absorption": 1.3,
+            "Sell absorption": 1.3,
+            "Buy confirmation": 2.2,
+            "Sell confirmation": 4.0,
+            "Short squeeze candidate": 1.5,
+            "Long squeeze candidate": 1.5,
+            "High volume": 1.2
+        }
+
         for point_type, group in important_points.groupby("type"):
             fig.add_trace(
                 go.Scatter(
@@ -600,7 +620,7 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
                         size=13,
                         color=marker_colors.get(point_type, "#ffffff"),
                         symbol=marker_symbols.get(point_type, "circle"),
-                        line=dict(width=1.4, color=marker_line_colors.get(point_type, "#111111"))
+                        line=dict(width=marker_line_widths.get(point_type, 1.3), color=marker_line_colors.get(point_type, "#111111"))
                     ),
                     name=point_type,
                     text=group["reason"],
@@ -1074,6 +1094,7 @@ def detect_important_points(summary_5m):
             score = 78 + min(18, max(0, float(mult) - 2.0) * 6)
             rows.append({
                 **base,
+                "spot_price": row["low"] - max(row["range"] * 0.20, 8),
                 "type": "Buy confirmation",
                 "score": round(score, 1),
                 "reason": f"Volume {row['volume_BTC']:.2f} BTC is {mult:.2f}x the recent average. Price/CVD lookback is up, with delta +{row['delta_BTC']:.2f} BTC and candle move +{row['candle_move']:.2f} USD aligned upward. Buy confirmation."
@@ -1093,6 +1114,7 @@ def detect_important_points(summary_5m):
             score = 78 + min(18, max(0, float(mult) - 2.0) * 6)
             rows.append({
                 **base,
+                "spot_price": row["high"] + max(row["range"] * 0.20, 8),
                 "type": "Sell confirmation",
                 "score": round(score, 1),
                 "reason": f"Volume {row['volume_BTC']:.2f} BTC is {mult:.2f}x the recent average. Price/CVD lookback is down, with delta {row['delta_BTC']:.2f} BTC and candle move {row['candle_move']:.2f} USD aligned downward. Sell confirmation."
