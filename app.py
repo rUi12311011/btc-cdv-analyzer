@@ -24,161 +24,183 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+    /* Minimal monochrome / street-zine inspired UI */
     .stApp {
-        background-color: #0f111a;
-        color: #d1d4dc;
+        background-color: #0b0b0c;
+        color: #e6e2d9;
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 13px;
     }
 
     [data-testid="stAppViewContainer"] {
-        background: linear-gradient(180deg, #0f111a 0%, #131722 100%);
+        background: #0b0b0c;
     }
 
     [data-testid="stSidebar"] {
-        background-color: #131722;
-        border-right: 1px solid #2a2e39;
+        background-color: #111113;
+        border-right: 1px solid #2b2b2f;
     }
 
     [data-testid="stSidebar"] > div:first-child {
-        padding-top: 2.2rem;
+        padding-top: 2.0rem;
     }
 
     .block-container {
-        padding-top: 3.4rem;
+        padding-top: 3.0rem;
         padding-bottom: 2rem;
-        max-width: 1600px;
+        max-width: 1500px;
     }
 
     .tv-header {
-        background-color: #131722;
-        border: 1px solid #2a2e39;
-        border-radius: 12px;
-        padding: 14px 18px;
-        margin-bottom: 18px;
+        background-color: #101012;
+        border: 1px solid #2b2b2f;
+        border-left: 4px solid #c1121f;
+        border-radius: 2px;
+        padding: 10px 14px;
+        margin-bottom: 12px;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        box-shadow: 0 0 0 1px rgba(255,255,255,0.02);
+        box-shadow: none;
     }
 
     .tv-title {
-        font-size: 26px;
-        font-weight: 800;
-        color: #f0f3fa;
-        letter-spacing: 0.3px;
+        font-size: 18px;
+        line-height: 1.2;
+        font-weight: 700;
+        color: #f4f1ea;
+        letter-spacing: 0.2px;
+        text-transform: uppercase;
     }
 
     .tv-subtitle {
-        font-size: 13px;
-        color: #9aa4b2;
-        margin-top: 4px;
+        font-size: 11px;
+        color: #9b9b9b;
+        margin-top: 3px;
+        letter-spacing: 0.1px;
     }
 
     .tv-badge {
-        background-color: #1e222d;
-        border: 1px solid #2a2e39;
-        border-radius: 999px;
-        padding: 6px 12px;
-        color: #22ab94;
-        font-size: 13px;
+        background-color: transparent;
+        border: 1px solid #c1121f;
+        border-radius: 2px;
+        padding: 4px 8px;
+        color: #f4f1ea;
+        font-size: 10px;
         font-weight: 700;
         white-space: nowrap;
+        letter-spacing: 0.5px;
     }
 
     .metric-card {
-        background-color: #131722;
-        border: 1px solid #2a2e39;
-        border-radius: 12px;
-        padding: 14px 16px;
-        margin-bottom: 10px;
+        background-color: #101012;
+        border: 1px solid #2b2b2f;
+        border-radius: 2px;
+        padding: 9px 11px;
+        margin-bottom: 8px;
     }
 
     .metric-label {
-        font-size: 12px;
-        color: #9aa4b2;
-        margin-bottom: 4px;
+        font-size: 10px;
+        color: #9b9b9b;
+        margin-bottom: 3px;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
     }
 
     .metric-value {
-        font-size: 22px;
-        font-weight: 800;
-        color: #f0f3fa;
+        font-size: 14px;
+        line-height: 1.35;
+        font-weight: 600;
+        color: #f4f1ea;
     }
 
-    .metric-green {
-        color: #22ab94;
-    }
-
-    .metric-red {
-        color: #f23645;
-    }
+    .metric-green { color: #9cc5a1; }
+    .metric-red { color: #e45757; }
 
     label {
-        color: #b2b5be !important;
-        font-weight: 700 !important;
+        color: #c8c3b8 !important;
+        font-weight: 600 !important;
+        font-size: 12px !important;
     }
 
     input, textarea, select {
-        background-color: #1e222d !important;
-        color: #d1d4dc !important;
-        border: 1px solid #2a2e39 !important;
-        border-radius: 8px !important;
+        background-color: #18181b !important;
+        color: #e6e2d9 !important;
+        border: 1px solid #343438 !important;
+        border-radius: 2px !important;
+        font-size: 12px !important;
     }
 
     .stButton > button {
-        background-color: #2962ff;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 0.65rem 1.2rem;
-        font-weight: 800;
+        background-color: #c1121f;
+        color: #f4f1ea;
+        border: 1px solid #c1121f;
+        border-radius: 2px;
+        padding: 0.45rem 0.9rem;
+        font-size: 12px;
+        font-weight: 700;
         width: 100%;
+        letter-spacing: 0.3px;
     }
 
     .stButton > button:hover {
-        background-color: #1e53e5;
-        color: white;
+        background-color: #8f0d17;
+        color: #ffffff;
+        border-color: #8f0d17;
     }
 
     .stDownloadButton > button {
-        background-color: #1e222d;
-        color: #d1d4dc;
-        border: 1px solid #2a2e39;
-        border-radius: 8px;
-        font-weight: 700;
+        background-color: #18181b;
+        color: #e6e2d9;
+        border: 1px solid #343438;
+        border-radius: 2px;
+        font-size: 12px;
+        font-weight: 600;
     }
 
     .stDownloadButton > button:hover {
-        background-color: #2a2e39;
+        background-color: #242428;
         color: #ffffff;
     }
 
     [data-testid="stDataFrame"] {
-        background-color: #131722;
-        border: 1px solid #2a2e39;
-        border-radius: 10px;
+        background-color: #101012;
+        border: 1px solid #2b2b2f;
+        border-radius: 2px;
         overflow: hidden;
     }
 
     h1, h2, h3 {
-        color: #f0f3fa !important;
+        color: #f4f1ea !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.2px !important;
     }
 
+    h1 { font-size: 1.35rem !important; }
+    h2 { font-size: 1.05rem !important; }
+    h3 { font-size: 0.9rem !important; }
+
     .stAlert {
-        background-color: #1e222d;
-        border: 1px solid #2a2e39;
-        border-radius: 8px;
-        color: #d1d4dc;
+        background-color: #141416;
+        border: 1px solid #343438;
+        border-left: 4px solid #c1121f;
+        border-radius: 2px;
+        color: #e6e2d9;
+        font-size: 12px;
     }
 
     [data-testid="stMetric"] {
-        background-color: #131722;
-        border: 1px solid #2a2e39;
-        border-radius: 10px;
-        padding: 12px;
+        background-color: #101012;
+        border: 1px solid #2b2b2f;
+        border-radius: 2px;
+        padding: 9px;
     }
 
-    hr {
-        border-color: #2a2e39;
+    hr { border-color: #2b2b2f; }
+
+    .stCaptionContainer, .stMarkdown, .stText {
+        font-size: 12px;
     }
     </style>
     """,
@@ -196,10 +218,10 @@ st.markdown(
         <div>
             <div class="tv-title">Signal Flow Validator</div>
             <div class="tv-subtitle">
-                TradingViewシグナル検証 × Coinbase実約定CVD × 吸収/POC/スクイーズ確認
+                TradingView signal check / Coinbase actual trade CVD / absorption / POC / squeeze
             </div>
         </div>
-        <div class="tv-badge">LIVE API MODE</div>
+        <div class="tv-badge">LIVE DATA</div>
     </div>
     """,
     unsafe_allow_html=True
@@ -216,7 +238,7 @@ with st.sidebar:
     product_id = st.text_input("Product ID", value="BTC-USD")
 
     hours_back = st.number_input(
-        "何時間前から取得するか",
+        "Hours Back",
         min_value=1,
         max_value=24,
         value=6,
@@ -224,26 +246,26 @@ with st.sidebar:
     )
 
     detail_5m_start_str = st.text_input(
-        "詳しく見る5分足 JST",
+        "Selected 5m Bar JST",
         value="2026-06-13 20:55:00"
     )
 
     price_round_digit = st.selectbox(
-        "価格帯別出来高の丸め",
+        "Price Bin Rounding",
         options=[0, 1, 2],
         index=1,
         format_func=lambda x: {
-            0: "1ドル刻み",
-            1: "0.1ドル刻み",
-            2: "0.01ドル刻み"
+            0: "$1 step",
+            1: "$0.1 step",
+            2: "$0.01 step"
         }[x]
     )
 
     st.markdown("---")
-    st.markdown("### 確認足 / Sync条件")
+    st.markdown("### Confirmation / Sync Rules")
 
     confirm_vol_len = st.number_input(
-        "出来高平均本数",
+        "Volume MA Length",
         min_value=5,
         max_value=200,
         value=20,
@@ -251,7 +273,7 @@ with st.sidebar:
     )
 
     confirm_vol_mult = st.number_input(
-        "出来高急増倍率",
+        "Volume Surge Multiplier",
         min_value=0.5,
         max_value=10.0,
         value=1.5,
@@ -259,7 +281,7 @@ with st.sidebar:
     )
 
     confirm_lookback = st.number_input(
-        "CVD/価格 方向判定本数",
+        "CVD/Price Lookback Bars",
         min_value=1,
         max_value=50,
         value=3,
@@ -267,15 +289,15 @@ with st.sidebar:
     )
 
     confirm_require_full_window = st.checkbox(
-        "平均本数が揃ってから判定",
+        "Require Full MA Window",
         value=True
     )
 
-    st.caption("TradingViewシグナル検証用：出来高急増 + 価格/CVDのLookback方向一致 + 現在足の価格/CVDが同方向")
+    st.caption("TradingView signal validation: volume surge + price/CVD lookback alignment + current price/CVD candle alignment")
 
     st.markdown("---")
 
-    run = st.button("解析実行")
+    run = st.button("Run Analysis")
 
 
 # =========================================================
@@ -326,9 +348,11 @@ def fetch_coinbase_trades(
             side = t["side"]
 
             # Coinbaseのsideはmaker側
-            # side=sell → 売り板が約定 → takerは買い成行っぽい
-            # side=buy  → 買い板が約定 → takerは売り成行っぽい
-            taker_side = "買い成行っぽい" if side == "sell" else "売り成行っぽい"
+            # Coinbaseのsideはmaker側
+            # side=sell → ask側が約定 → taker direction は buy
+            # side=buy  → bid側が約定 → taker direction は sell
+            # bid/askではなく、ここでは実際にぶつけた側の方向として buy / sell で表示する
+            taker_side = "buy" if side == "sell" else "sell"
 
             rows.append({
                 "trade_id": int(t["trade_id"]),
@@ -463,23 +487,23 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
     # 重要ポイントをチャートにマーカー表示
     if important_points is not None and len(important_points) > 0:
         marker_colors = {
-            "買い吸収": "#22ab94",
-            "買い確認": "#2962ff",
-            "売り吸収": "#f23645",
-            "売り確認": "#ff9800",
-            "ショートスクイーズ候補": "#00e676",
-            "ロングスクイーズ候補": "#ff5252",
-            "高出来高": "#b2b5be"
+            "Buy absorption": "#22ab94",
+            "Buy confirmation": "#2962ff",
+            "Sell absorption": "#f23645",
+            "Sell confirmation": "#ff9800",
+            "Short squeeze candidate": "#00e676",
+            "Long squeeze candidate": "#ff5252",
+            "High volume": "#b2b5be"
         }
 
         marker_symbols = {
-            "買い吸収": "triangle-up",
-            "買い確認": "circle",
-            "売り吸収": "triangle-down",
-            "売り確認": "x",
-            "ショートスクイーズ候補": "star",
-            "ロングスクイーズ候補": "star",
-            "高出来高": "diamond"
+            "Buy absorption": "triangle-up",
+            "Buy confirmation": "circle",
+            "Sell absorption": "triangle-down",
+            "Sell confirmation": "x",
+            "Short squeeze candidate": "star",
+            "Long squeeze candidate": "star",
+            "High volume": "diamond"
         }
 
         for point_type, group in important_points.groupby("type"):
@@ -506,7 +530,7 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
                 col=1
             )
 
-    # POC / サポート / レジスタンス候補の水平線
+    # POC / Support / Resistance Candidatesの水平線
     if sr_levels is not None and len(sr_levels) > 0:
         for _, level in sr_levels.iterrows():
             kind = level["kind"]
@@ -523,13 +547,13 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
                 color = "#f23645"
                 dash = "dot"
 
+            # SR/POCラベルは価格が近いと重なるため、チャート上には線だけ表示。
+            # 詳細は下のPOC / Support / Resistanceテーブルで確認。
             fig.add_hline(
                 y=price,
                 line_color=color,
                 line_dash=dash,
                 line_width=2,
-                annotation_text=f"{kind} {price:.1f} / {volume:.2f} BTC",
-                annotation_position="right",
                 row=1,
                 col=1
             )
@@ -537,16 +561,28 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
     # 選択したポイントをスポット表示
     if selected_point is not None:
         selected_time = selected_point["time_5m"]
-        selected_end = selected_time + pd.Timedelta(minutes=5)
+        selected_start = selected_time - pd.Timedelta(minutes=2, seconds=30)
+        selected_end = selected_time + pd.Timedelta(minutes=2, seconds=30)
         selected_price = selected_point["spot_price"]
         selected_label = selected_point["label"]
 
+        # Plotlyのローソク足はx時刻を中心に描画されるため、
+        # 5分足のスポット帯もローソク中央に合わせる。
         fig.add_vrect(
-            x0=selected_time,
+            x0=selected_start,
             x1=selected_end,
             fillcolor="#2962ff",
             opacity=0.18,
             line_width=0,
+            row=1,
+            col=1
+        )
+
+        fig.add_vline(
+            x=selected_time,
+            line_color="#ffd54f",
+            line_width=1,
+            line_dash="dash",
             row=1,
             col=1
         )
@@ -649,13 +685,13 @@ def make_5m_summary(df_range, confirm_vol_len=20, confirm_vol_mult=1.5, confirm_
     )
 
     buy_5m = (
-        df_range[df_range["taker_side_estimate"] == "買い成行っぽい"]
+        df_range[df_range["taker_side_estimate"] == "buy"]
         .groupby("time_5m")["size_BTC"]
         .sum()
     )
 
     sell_5m = (
-        df_range[df_range["taker_side_estimate"] == "売り成行っぽい"]
+        df_range[df_range["taker_side_estimate"] == "sell"]
         .groupby("time_5m")["size_BTC"]
         .sum()
     )
@@ -701,7 +737,7 @@ def make_5m_summary(df_range, confirm_vol_len=20, confirm_vol_mult=1.5, confirm_
     # 選択期間内で相対的に大きいデルタを抽出
     delta_threshold = summary_5m["delta_abs"].quantile(0.60)
 
-    # 売りデルタが大きいのに価格が下に進まない = 買い吸収候補
+    # sell deltaが大きいのに価格が下に進まない = Buy absorption candidates
     summary_5m["buy_absorption_candidate"] = (
         (summary_5m["delta_BTC"] <= -delta_threshold) &
         (summary_5m["delta_strength"] >= 0.25) &
@@ -731,7 +767,7 @@ def make_5m_summary(df_range, confirm_vol_len=20, confirm_vol_mult=1.5, confirm_
     )
 
     # Coinbase実約定ベースCVD
-    # 買い成行っぽい - 売り成行っぽい の5分足デルタを累積
+    # buy takerっぽい - sell takerっぽい の5分足デルタを累積
     summary_5m["cumulative_delta_BTC"] = summary_5m["delta_BTC"].cumsum()
 
     summary_5m["price_up_lookback"] = summary_5m["close"] > summary_5m["close"].shift(confirm_lookback)
@@ -765,7 +801,7 @@ def make_5m_summary(df_range, confirm_vol_len=20, confirm_vol_mult=1.5, confirm_
         summary_5m["cvd_bull_candle"]
     )
 
-    # 買いデルタが大きいのに価格が上に進まない = 売り吸収候補
+    # buy deltaが大きいのに価格が上に進まない = Sell absorption candidates
     summary_5m["sell_absorption_candidate"] = (
         (summary_5m["delta_BTC"] >= delta_threshold) &
         (summary_5m["delta_strength"] >= 0.25) &
@@ -805,7 +841,7 @@ def make_5m_summary(df_range, confirm_vol_len=20, confirm_vol_mult=1.5, confirm_
 
 
 # =========================================================
-# POC / サポート / レジスタンス候補
+# POC / Support / Resistance Candidates
 # =========================================================
 
 def calculate_volume_profile_levels(df_range, current_price, price_round_digit, top_n=3):
@@ -862,7 +898,7 @@ def calculate_volume_profile_levels(df_range, current_price, price_round_digit, 
             "price": float(r["price_bin"]),
             "volume_BTC": float(r["size_BTC"]),
             "distance_from_current": float(r["price_bin"] - current_price),
-            "memo": "現在値より下の出来高集中帯。サポート候補。"
+            "memo": "High-volume area below current price. Support candidate."
         })
 
     for _, r in resistances.iterrows():
@@ -871,7 +907,7 @@ def calculate_volume_profile_levels(df_range, current_price, price_round_digit, 
             "price": float(r["price_bin"]),
             "volume_BTC": float(r["size_BTC"]),
             "distance_from_current": float(r["price_bin"] - current_price),
-            "memo": "現在値より上の出来高集中帯。レジスタンス候補。"
+            "memo": "High-volume area above current price. Resistance candidate."
         })
 
     sr_levels = pd.DataFrame(levels)
@@ -920,9 +956,9 @@ def detect_important_points(summary_5m):
             score = 80 + min(15, row.get("delta_strength", 0) * 30)
             rows.append({
                 **base,
-                "type": "買い吸収",
+                "type": "Buy absorption",
                 "score": round(score, 1),
-                "reason": f"売りデルタ{row['delta_BTC']:.2f} BTCに対して実体{row['candle_move']:.2f}ドル。売りが出ているのに価格が進まないため買い吸収候補。"
+                "reason": f"Sell delta {row['delta_BTC']:.2f} BTC vs body {row['candle_move']:.2f} USD. Sell flow appeared, but price did not move down enough. Buy absorption candidate."
             })
 
         if row["bullish_confirmation"]:
@@ -930,18 +966,18 @@ def detect_important_points(summary_5m):
             score = 78 + min(18, max(0, float(mult) - 2.0) * 6)
             rows.append({
                 **base,
-                "type": "買い確認",
+                "type": "Buy confirmation",
                 "score": round(score, 1),
-                "reason": f"出来高{row['volume_BTC']:.2f} BTCが直近平均の{mult:.2f}倍。価格/CVDのLookback方向が上向き、かつデルタ+{row['delta_BTC']:.2f} BTC・値幅+{row['candle_move']:.2f}ドルで順行。買い確認。"
+                "reason": f"Volume {row['volume_BTC']:.2f} BTC is {mult:.2f}x the recent average. Price/CVD lookback is up, with delta +{row['delta_BTC']:.2f} BTC and candle move +{row['candle_move']:.2f} USD aligned upward. Buy confirmation."
             })
 
         if row["sell_absorption_candidate"]:
             score = 80 + min(15, row.get("delta_strength", 0) * 30)
             rows.append({
                 **base,
-                "type": "売り吸収",
+                "type": "Sell absorption",
                 "score": round(score, 1),
-                "reason": f"買いデルタ+{row['delta_BTC']:.2f} BTCに対して実体{row['candle_move']:.2f}ドル。買いが出ているのに価格が進まないため売り吸収候補。"
+                "reason": f"Buy delta +{row['delta_BTC']:.2f} BTC vs body {row['candle_move']:.2f} USD. Buy flow appeared, but price did not move up enough. Sell absorption candidate."
             })
 
         if row["bearish_confirmation"]:
@@ -949,17 +985,17 @@ def detect_important_points(summary_5m):
             score = 78 + min(18, max(0, float(mult) - 2.0) * 6)
             rows.append({
                 **base,
-                "type": "売り確認",
+                "type": "Sell confirmation",
                 "score": round(score, 1),
-                "reason": f"出来高{row['volume_BTC']:.2f} BTCが直近平均の{mult:.2f}倍。価格/CVDのLookback方向が下向き、かつデルタ{row['delta_BTC']:.2f} BTC・値幅{row['candle_move']:.2f}ドルで順行。売り確認。"
+                "reason": f"Volume {row['volume_BTC']:.2f} BTC is {mult:.2f}x the recent average. Price/CVD lookback is down, with delta {row['delta_BTC']:.2f} BTC and candle move {row['candle_move']:.2f} USD aligned downward. Sell confirmation."
             })
 
         if row["volume_BTC"] >= vol_threshold:
             rows.append({
                 **base,
-                "type": "高出来高",
+                "type": "High volume",
                 "score": 60,
-                "reason": f"選択期間内で上位20%の出来高。出来高集中ポイント。"
+                "reason": f"Top 20% volume within the selected period. High-volume point."
             })
 
     # スクイーズ候補：吸収のあと数本以内に確認足が出たところを強調
@@ -980,9 +1016,9 @@ def detect_important_points(summary_5m):
                 "buy_ratio_%": confirm["buy_ratio_%"],
                 "sell_ratio_%": confirm["sell_ratio_%"],
                 "candle_move": confirm["candle_move"],
-                "type": "ショートスクイーズ候補",
+                "type": "Short squeeze candidate",
                 "score": 95,
-                "reason": f"{row['time_5m']}の買い吸収後、{confirm['time_5m']}で買い確認。ショートスクイーズ候補。"
+                "reason": f"After Buy absorption at {row['time_5m']}, Buy confirmation appeared at {confirm['time_5m']}. Short squeeze candidate."
             })
 
         if row["sell_absorption_candidate"] and len(future) > 0 and future["bearish_confirmation"].any():
@@ -999,13 +1035,13 @@ def detect_important_points(summary_5m):
                 "buy_ratio_%": confirm["buy_ratio_%"],
                 "sell_ratio_%": confirm["sell_ratio_%"],
                 "candle_move": confirm["candle_move"],
-                "type": "ロングスクイーズ候補",
+                "type": "Long squeeze candidate",
                 "score": 95,
-                "reason": f"{row['time_5m']}の売り吸収後、{confirm['time_5m']}で売り確認。ロングスクイーズ候補。"
+                "reason": f"After Sell absorption at {row['time_5m']}, Sell confirmation appeared at {confirm['time_5m']}. Long squeeze candidate."
             })
 
-    # 追加ルール：売り確認足/ショート誘い込み後の強い上抜け
-    # これは「買い吸収 → 買い確認」では拾えないショートスクイーズ型を拾うため。
+    # 追加ルール：Sell confirmation bars/ショート誘い込み後の強い上抜け
+    # これは「Buy absorption → Buy confirmation」では拾えないショートスクイーズ型を拾うため。
     for i, row in df.iterrows():
         if i == 0:
             continue
@@ -1021,7 +1057,7 @@ def detect_important_points(summary_5m):
         recent_sell_pressure = (lookback["sell_ratio_%"] >= 60).any()
         recent_buy_pressure = (lookback["buy_ratio_%"] >= 60).any()
 
-        # ショートスクイーズ候補：直前に売り圧があり、その後に買い確認＋直近高値上抜け
+        # Short squeeze candidate：直前に売り圧があり、その後にBuy confirmation＋直近高値上抜け
         if (
             row.get("bullish_confirmation", False) and
             row["high"] > previous_high and
@@ -1039,9 +1075,9 @@ def detect_important_points(summary_5m):
                 "buy_ratio_%": row["buy_ratio_%"],
                 "sell_ratio_%": row["sell_ratio_%"],
                 "candle_move": row["candle_move"],
-                "type": "ショートスクイーズ候補",
+                "type": "Short squeeze candidate",
                 "score": 96,
-                "reason": f"直近に売り圧があった後、買い成行{row['buy_ratio_%']:.1f}%で直近高値{previous_high:.2f}を上抜け。ショートスクイーズ候補。"
+                "reason": f"After recent sell pressure, buy taker ratio reached {row['buy_ratio_%']:.1f}% and price broke above recent high {previous_high:.2f}. Short squeeze candidate."
             })
 
         # ベアトラップ型：直前足が売り優勢、その次足で強い買い反転
@@ -1063,12 +1099,12 @@ def detect_important_points(summary_5m):
                 "buy_ratio_%": row["buy_ratio_%"],
                 "sell_ratio_%": row["sell_ratio_%"],
                 "candle_move": row["candle_move"],
-                "type": "ショートスクイーズ候補",
+                "type": "Short squeeze candidate",
                 "score": 98,
-                "reason": f"直前足が売り成行{prev['sell_ratio_%']:.1f}%でショート誘い込み。その直後に買い成行{row['buy_ratio_%']:.1f}%で反転上昇。ベアトラップ型ショートスクイーズ候補。"
+                "reason": f"Previous bar had sell taker ratio {prev['sell_ratio_%']:.1f}%, likely trapping shorts. Next bar reversed upward with buy taker ratio {row['buy_ratio_%']:.1f}%. Bear-trap short squeeze candidate."
             })
 
-        # ロングスクイーズ候補：直近に買い圧があり、その後に売り確認＋直近安値割れ
+        # Long squeeze candidate：直近に買い圧があり、その後にSell confirmation＋直近安値割れ
         if (
             row.get("bearish_confirmation", False) and
             row["low"] < previous_low and
@@ -1086,9 +1122,9 @@ def detect_important_points(summary_5m):
                 "buy_ratio_%": row["buy_ratio_%"],
                 "sell_ratio_%": row["sell_ratio_%"],
                 "candle_move": row["candle_move"],
-                "type": "ロングスクイーズ候補",
+                "type": "Long squeeze candidate",
                 "score": 96,
-                "reason": f"直近に買い圧があった後、売り成行{row['sell_ratio_%']:.1f}%で直近安値{previous_low:.2f}を下抜け。ロングスクイーズ候補。"
+                "reason": f"After recent buy pressure, sell taker ratio reached {row['sell_ratio_%']:.1f}% and price broke below recent low {previous_low:.2f}. Long squeeze candidate."
             })
 
     if not rows:
@@ -1131,11 +1167,11 @@ def analyze_detail_5m(df_range, detail_start, price_round_digit):
     total = df_detail["size_BTC"].sum()
 
     buy_qty = df_detail[
-        df_detail["taker_side_estimate"] == "買い成行っぽい"
+        df_detail["taker_side_estimate"] == "buy"
     ]["size_BTC"].sum()
 
     sell_qty = df_detail[
-        df_detail["taker_side_estimate"] == "売り成行っぽい"
+        df_detail["taker_side_estimate"] == "sell"
     ]["size_BTC"].sum()
 
     detail_summary = pd.DataFrame([{
@@ -1314,7 +1350,7 @@ def render_analysis(data):
         if "selected_point_id" not in st.session_state or st.session_state["selected_point_id"] not in valid_ids:
             st.session_state["selected_point_id"] = valid_ids[0]
 
-        st.subheader("重要ポイント一覧")
+        st.subheader("Important Points")
 
         display_points = important_points.copy()
         display_points["selected"] = display_points["point_id"].apply(
@@ -1361,7 +1397,7 @@ def render_analysis(data):
             unsafe_allow_html=True
         )
 
-    st.subheader("Coinbase 5分足チャート")
+    st.subheader("Coinbase 5m Chart")
     chart_event = show_candlestick_chart(
         df_candles,
         product_id,
@@ -1393,7 +1429,7 @@ def render_analysis(data):
                 st.rerun()
 
     if len(sr_levels) > 0:
-        st.subheader("POC / サポート / レジスタンス候補")
+        st.subheader("POC / Support / Resistance Candidates")
         st.dataframe(sr_levels, use_container_width=True)
 
     latest = summary_5m.tail(1).iloc[0]
@@ -1413,15 +1449,15 @@ def render_analysis(data):
     with col4:
         metric_card("Sell Ratio", f"{latest['sell_ratio_%']:.2f}%", "metric-red")
 
-    st.subheader("5分足CDV集計 最新30本")
+    st.subheader("5m CDV Summary - Latest 30 Bars")
     st.dataframe(summary_5m.tail(30), use_container_width=True)
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "買い吸収候補",
-        "買い確認足",
-        "売り吸収候補",
-        "売り確認足",
-        "防衛ライン候補"
+        "Buy absorption candidates",
+        "Buy confirmation bars",
+        "Sell absorption candidates",
+        "Sell confirmation bars",
+        "Defense Line Candidates"
     ])
 
     with tab1:
@@ -1459,30 +1495,30 @@ def render_analysis(data):
         st.dataframe(defense_candidates, use_container_width=True)
 
     # -----------------------------------------------------
-    # 全体価格帯別出来高
+    # 全体Volume by Price
     # -----------------------------------------------------
 
     col_a, col_b = st.columns(2)
 
     with col_a:
-        st.subheader("全体 価格帯別出来高 TOP30")
+        st.subheader("Overall Volume by Price - Top 30")
         st.dataframe(volume_by_price_all.head(30), use_container_width=True)
 
     with col_b:
-        st.subheader("全体 価格帯別 × 成行方向 TOP30")
+        st.subheader("Overall Volume by Price × Taker Side - Top 30")
         st.dataframe(side_price_volume_all.head(30), use_container_width=True)
 
     # -----------------------------------------------------
-    # CSVダウンロード
+    # CSV Downloads
     # -----------------------------------------------------
 
-    st.subheader("CSVダウンロード")
+    st.subheader("CSV Downloads")
 
     dl1, dl2, dl3, dl4 = st.columns(4)
 
     with dl1:
         st.download_button(
-            "約定履歴CSV",
+            "Trades CSV",
             df_range.to_csv(index=False).encode("utf-8-sig"),
             file_name="trades.csv",
             mime="text/csv"
@@ -1490,7 +1526,7 @@ def render_analysis(data):
 
     with dl2:
         st.download_button(
-            "5分足CDV CSV",
+            "5m CDV CSV",
             summary_5m.to_csv().encode("utf-8-sig"),
             file_name="5m_cdv_summary.csv",
             mime="text/csv"
@@ -1498,7 +1534,7 @@ def render_analysis(data):
 
     with dl3:
         st.download_button(
-            "価格帯別出来高CSV",
+            "Volume by Price CSV",
             volume_by_price_all.to_csv(index=False).encode("utf-8-sig"),
             file_name="volume_by_price_all.csv",
             mime="text/csv"
@@ -1506,21 +1542,21 @@ def render_analysis(data):
 
     with dl4:
         st.download_button(
-            "価格帯×成行CSV",
+            "Price × Taker Side CSV",
             side_price_volume_all.to_csv().encode("utf-8-sig"),
             file_name="side_price_volume_all.csv",
             mime="text/csv"
         )
 
     # -----------------------------------------------------
-    # 特定5分足 詳細解析
+    # Selected 5m Bar Detail Analysis
     # -----------------------------------------------------
 
     if detail_5m_start_str.strip():
         try:
             detail_start = pd.Timestamp(detail_5m_start_str, tz="Asia/Tokyo")
         except Exception:
-            st.error("詳しく見る5分足の日時形式が不正です。例: 2026-06-13 20:55:00")
+            st.error("Invalid selected 5m datetime format. Example: 2026-06-13 20:55:00")
             st.stop()
 
         detail = analyze_detail_5m(
@@ -1529,21 +1565,21 @@ def render_analysis(data):
             price_round_digit=price_round_digit
         )
 
-        st.subheader("特定5分足 詳細解析")
+        st.subheader("Selected 5m Bar Detail Analysis")
 
         if detail is None:
-            st.warning("指定した5分足のデータがありません。取得時間範囲内か確認してください。")
+            st.warning("No data for the selected 5m bar. Check that it is within the fetched time range.")
         else:
-            st.write("詳細サマリー")
+            st.write("Detail Summary")
             st.dataframe(detail["detail_summary"], use_container_width=True)
 
             detail_tab1, detail_tab2, detail_tab3, detail_tab4, detail_tab5, detail_tab6 = st.tabs([
-                "価格帯別出来高",
-                "価格帯×成行方向",
-                "秒ごとの出来高",
-                "同時刻複数約定",
-                "同じサイズ連打",
-                "連続買い/売り"
+                "Volume by Price",
+                "Price × Taker Side",
+                "Volume by Second",
+                "Multiple Trades at Same Timestamp",
+                "Repeated Same Size Trades",
+                "Consecutive Buy/Sell Runs"
             ])
 
             with detail_tab1:
@@ -1564,13 +1600,13 @@ def render_analysis(data):
             with detail_tab6:
                 st.dataframe(detail["runs"].head(30), use_container_width=True)
 
-            st.subheader("特定5分足 CSVダウンロード")
+            st.subheader("Selected 5m Bar CSV Downloads")
 
             d1, d2, d3, d4 = st.columns(4)
 
             with d1:
                 st.download_button(
-                    "詳細約定CSV",
+                    "Detail Trades CSV",
                     detail["df_detail"].to_csv(index=False).encode("utf-8-sig"),
                     file_name="detail_trades.csv",
                     mime="text/csv"
@@ -1578,7 +1614,7 @@ def render_analysis(data):
 
             with d2:
                 st.download_button(
-                    "詳細サマリーCSV",
+                    "Detail Summary CSV",
                     detail["detail_summary"].to_csv(index=False).encode("utf-8-sig"),
                     file_name="detail_summary.csv",
                     mime="text/csv"
@@ -1586,7 +1622,7 @@ def render_analysis(data):
 
             with d3:
                 st.download_button(
-                    "詳細価格帯CSV",
+                    "Detail Volume by Price CSV",
                     detail["volume_by_price"].to_csv(index=False).encode("utf-8-sig"),
                     file_name="detail_volume_by_price.csv",
                     mime="text/csv"
@@ -1594,7 +1630,7 @@ def render_analysis(data):
 
             with d4:
                 st.download_button(
-                    "詳細秒別CSV",
+                    "Detail Volume by Second CSV",
                     detail["volume_by_second"].to_csv().encode("utf-8-sig"),
                     file_name="detail_volume_by_second.csv",
                     mime="text/csv"
@@ -1614,7 +1650,7 @@ if run:
     range_end = pd.Timestamp.now(tz=tz)
     range_start = range_end - pd.Timedelta(hours=int(hours_back))
 
-    with st.spinner("Coinbase APIからデータ取得・解析中..."):
+    with st.spinner("Fetching and analyzing Coinbase API data..."):
         df_candles = fetch_coinbase_candles(
             product_id=product_id,
             range_start=range_start,
@@ -1630,7 +1666,7 @@ if run:
         )
 
         if len(df_range) == 0:
-            st.error("約定データが取得できませんでした。")
+            st.error("No trade data was fetched.")
             st.stop()
 
         summary_5m = make_5m_summary(
@@ -1671,7 +1707,7 @@ if run:
             },
         }
 
-    st.success("解析完了。重要ポイントの選択は再取得なしで切り替えできます。")
+    st.success("Analysis complete. You can switch important-point selections without refetching data.")
 
 if st.session_state["analysis_data"] is not None:
     render_analysis(st.session_state["analysis_data"])
@@ -1680,7 +1716,7 @@ else:
         """
         <div class="metric-card">
             <div class="metric-label">Ready</div>
-            <div class="metric-value">左の設定を確認して「解析実行」を押してください</div>
+            <div class="metric-value">Check the settings on the left and press “Run Analysis”.</div>
         </div>
         """,
         unsafe_allow_html=True
