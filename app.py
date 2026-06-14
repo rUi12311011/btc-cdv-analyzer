@@ -391,10 +391,18 @@ with st.sidebar:
 
     product_id = st.text_input("Product ID", value="BTC-USD")
 
-    max_history_hours_raw = st.text_input("Max Historical Hours", value="24")
+    max_history_hours_raw = st.text_input(
+        "Max Historical Hours",
+        value="24",
+        key="max_history_hours_v2"
+    )
     max_history_hours = safe_int_input(max_history_hours_raw, default=24, min_value=1, max_value=168)
 
-    hours_back_raw = st.text_input("Hours Back", value="24")
+    hours_back_raw = st.text_input(
+        "Hours Back",
+        value="24",
+        key="hours_back_v2_force_24h"
+    )
     hours_back = safe_int_input(hours_back_raw, default=min(24, max_history_hours), min_value=1, max_value=max_history_hours)
 
     st.caption(f"取得上限: {max_history_hours}h / 表示対象: {hours_back}h。長くすると取得に時間がかかります。")
@@ -2162,8 +2170,23 @@ def render_analysis(data):
             )
         data["important_points"] = important_points
 
+    requested_hours_back = data.get("requested_hours_back", None)
+    max_history_hours = data.get("max_history_hours", None)
+    actual_candle_hours = None
+    try:
+        if df_candles is not None and len(df_candles) > 1:
+            actual_candle_hours = (df_candles["time"].max() - df_candles["time"].min()).total_seconds() / 3600
+    except Exception:
+        actual_candle_hours = None
+
+    extra_range_note = ""
+    if requested_hours_back is not None:
+        extra_range_note = f" / requested {requested_hours_back}h"
+    if actual_candle_hours is not None:
+        extra_range_note += f" / chart span {actual_candle_hours:.1f}h"
+
     st.markdown(
-        f'<div class="tiny-status">Data: {range_start.strftime("%Y-%m-%d %H:%M")} – {range_end.strftime("%Y-%m-%d %H:%M")}</div>',
+        f'<div class="tiny-status">Data: {range_start.strftime("%Y-%m-%d %H:%M")} – {range_end.strftime("%Y-%m-%d %H:%M")}{extra_range_note}</div>',
         unsafe_allow_html=True
     )
 
@@ -2607,6 +2630,8 @@ if run:
             "product_id": product_id,
             "range_start": range_start,
             "range_end": range_end,
+            "requested_hours_back": int(hours_back),
+            "max_history_hours": int(max_history_hours),
             "df_candles": df_candles,
             "df_range": df_range,
             "summary_5m": summary_5m,
