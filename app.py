@@ -391,8 +391,13 @@ with st.sidebar:
 
     product_id = st.text_input("Product ID", value="BTC-USD")
 
-    hours_back_raw = st.text_input("Hours Back", value="6")
-    hours_back = safe_int_input(hours_back_raw, default=6, min_value=1, max_value=24)
+    max_history_hours_raw = st.text_input("Max Historical Hours", value="24")
+    max_history_hours = safe_int_input(max_history_hours_raw, default=24, min_value=1, max_value=168)
+
+    hours_back_raw = st.text_input("Hours Back", value="24")
+    hours_back = safe_int_input(hours_back_raw, default=min(24, max_history_hours), min_value=1, max_value=max_history_hours)
+
+    st.caption(f"取得上限: {max_history_hours}h / 表示対象: {hours_back}h。長くすると取得に時間がかかります。")
 
     detail_5m_start_str = st.text_input(
         "Selected 5m Bar JST",
@@ -485,13 +490,16 @@ with st.sidebar:
     tv_lookahead_bars_raw = st.text_input("TV Lookahead Bars", value="6")
     tv_lookahead_bars = safe_int_input(tv_lookahead_bars_raw, default=6, min_value=1, max_value=100)
 
-    min_squeeze_confidence_raw = st.text_input("Min Squeeze Confidence %", value="65")
-    min_squeeze_confidence = safe_float_input(min_squeeze_confidence_raw, default=65.0, min_value=0.0, max_value=100.0)
+    min_squeeze_confidence_raw = st.text_input("Min Squeeze Confidence %", value="50")
+    min_squeeze_confidence = safe_float_input(min_squeeze_confidence_raw, default=50.0, min_value=0.0, max_value=100.0)
+
+    max_squeeze_icons_raw = st.text_input("Max Squeeze Icons", value="12")
+    max_squeeze_icons = safe_int_input(max_squeeze_icons_raw, default=12, min_value=1, max_value=100)
 
     hide_low_confidence_points = st.checkbox(
-        "Hide low-confidence squeeze points",
+        "Filter squeeze points",
         value=True,
-        help="Short/Long setup・trigger・Tape-confirmed squeezeだけに適用。Support/ResistanceやThin moveは残します。"
+        help="低確度を消しつつ、全部消えないように上位のスクイーズ系アイコンは残します。Support/ResistanceやThin moveは残します。"
     )
 
     st.caption("TV CSV = 構造検証・母集団 / Coinbase tape = テープ確認。TV CSVだけでTape-confirmedとは断定しません。")
@@ -607,35 +615,57 @@ def fetch_coinbase_trades(
 # =========================================================
 
 def fetch_coinbase_candles(product_id, range_start, range_end, granularity=300):
+    """Coinbase candlesを取得する。
+
+    Coinbaseのcandles APIは1回あたり最大約300本のため、24時間を超える場合でも
+    5分足を分割取得してチャートが途中で切れないようにする。
+    """
     url = f"https://api.exchange.coinbase.com/products/{product_id}/candles"
 
-    params = {
-        "start": range_start.tz_convert("UTC").isoformat(),
-        "end": range_end.tz_convert("UTC").isoformat(),
-        "granularity": granularity
-    }
+    max_candles_per_request = 300
+    chunk_seconds = granularity * max_candles_per_request
+    chunk_delta = pd.Timedelta(seconds=chunk_seconds)
 
-    res = requests.get(url, params=params)
+    all_frames = []
+    cur_start = range_start
+    request_count = 0
 
-    if res.status_code != 200:
-        st.error(f"ローソク足APIエラー: {res.status_code}")
-        st.write(res.text)
+    while cur_start < range_end:
+        cur_end = min(cur_start + chunk_delta, range_end)
+        params = {
+            "start": cur_start.tz_convert("UTC").isoformat(),
+            "end": cur_end.tz_convert("UTC").isoformat(),
+            "granularity": granularity
+        }
+
+        res = requests.get(url, params=params)
+
+        if res.status_code != 200:
+            st.error(f"ローソク足APIエラー: {res.status_code}")
+            st.write(res.text)
+            break
+
+        data = res.json()
+        if isinstance(data, list) and len(data) > 0:
+            df_part = pd.DataFrame(
+                data,
+                columns=["time", "low", "high", "open", "close", "volume"]
+            )
+            df_part["time"] = pd.to_datetime(df_part["time"], unit="s", utc=True).dt.tz_convert("Asia/Tokyo")
+            all_frames.append(df_part)
+
+        request_count += 1
+        cur_start = cur_end
+        time.sleep(0.05)
+
+    if not all_frames:
         return pd.DataFrame()
 
-    data = res.json()
+    df = pd.concat(all_frames, ignore_index=True)
+    df = df.drop_duplicates(subset=["time"]).sort_values("time")
 
-    if not isinstance(data, list) or len(data) == 0:
-        return pd.DataFrame()
-
-    # Coinbase candles:
-    # [time, low, high, open, close, volume]
-    df = pd.DataFrame(
-        data,
-        columns=["time", "low", "high", "open", "close", "volume"]
-    )
-
-    df["time"] = pd.to_datetime(df["time"], unit="s", utc=True).dt.tz_convert("Asia/Tokyo")
-    df = df.sort_values("time")
+    # 取得範囲の外側を念のため除外
+    df = df[(df["time"] >= range_start) & (df["time"] <= range_end)].copy()
 
     return df
 
@@ -2164,17 +2194,30 @@ def render_analysis(data):
     filtered_important_points = important_points.copy()
     try:
         if hide_low_confidence_points and len(filtered_important_points) > 0 and "squeeze_confidence" in filtered_important_points.columns:
-            low_conf_mask = (
-                filtered_important_points["type"].isin(squeeze_point_types) &
-                (pd.to_numeric(filtered_important_points["squeeze_confidence"], errors="coerce").fillna(0) < float(min_squeeze_confidence))
-            )
-            filtered_important_points = filtered_important_points[~low_conf_mask].copy()
+            conf = pd.to_numeric(filtered_important_points["squeeze_confidence"], errors="coerce").fillna(0)
+            is_squeeze = filtered_important_points["type"].isin(squeeze_point_types)
+
+            non_squeeze_points = filtered_important_points[~is_squeeze].copy()
+            squeeze_points = filtered_important_points[is_squeeze].copy()
+            squeeze_points["_conf_for_filter"] = pd.to_numeric(squeeze_points["squeeze_confidence"], errors="coerce").fillna(0)
+
+            # まず閾値以上を残す。
+            keep_squeeze = squeeze_points[squeeze_points["_conf_for_filter"] >= float(min_squeeze_confidence)].copy()
+
+            # 閾値が厳しすぎて全消えするのを防ぐため、上位N件は残す。
+            top_squeeze = squeeze_points.sort_values(["_conf_for_filter", "score", "tape_score"], ascending=False).head(int(max_squeeze_icons))
+            keep_squeeze = pd.concat([keep_squeeze, top_squeeze], ignore_index=False).drop_duplicates(subset=["point_id"])
+            keep_squeeze = keep_squeeze.drop(columns=["_conf_for_filter"], errors="ignore")
+
+            filtered_important_points = pd.concat([non_squeeze_points, keep_squeeze], ignore_index=False)
+            filtered_important_points = filtered_important_points.sort_values(["time_5m", "icon_side", "score"], ascending=[True, True, False]).copy()
     except Exception:
         pass
 
     if len(important_points) != len(filtered_important_points):
+        hidden_count = len(important_points) - len(filtered_important_points)
         st.markdown(
-            f'<div class="tiny-status">Squeeze filter: confidence >= {float(min_squeeze_confidence):.1f}% / hidden {len(important_points) - len(filtered_important_points)} low-confidence squeeze points</div>',
+            f'<div class="tiny-status">Squeeze filter: confidence >= {float(min_squeeze_confidence):.1f}% or top {int(max_squeeze_icons)} squeeze points / hidden {hidden_count}</div>',
             unsafe_allow_html=True
         )
 
