@@ -501,13 +501,16 @@ with st.sidebar:
     min_squeeze_confidence_raw = st.text_input("Min Squeeze Confidence %", value="50")
     min_squeeze_confidence = safe_float_input(min_squeeze_confidence_raw, default=50.0, min_value=0.0, max_value=100.0)
 
-    max_squeeze_icons_raw = st.text_input("Max Squeeze Icons", value="12")
-    max_squeeze_icons = safe_int_input(max_squeeze_icons_raw, default=12, min_value=1, max_value=100)
+    max_squeeze_icons_raw = st.text_input("Max Squeeze Icons / Type", value="4")
+    max_squeeze_icons = safe_int_input(max_squeeze_icons_raw, default=4, min_value=1, max_value=50)
+
+    liquidity_keep_pct_raw = st.text_input("Liquidity Thin Keep %", value="33")
+    liquidity_keep_pct = safe_float_input(liquidity_keep_pct_raw, default=33.0, min_value=1.0, max_value=100.0)
 
     hide_low_confidence_points = st.checkbox(
-        "Filter squeeze points",
+        "Filter chart points",
         value=True,
-        help="低確度を消しつつ、全部消えないように上位のスクイーズ系アイコンは残します。Support/ResistanceやThin moveは残します。"
+        help="スクイーズ系は種類ごとに上位を残し、Liquidity thin moveは確度/スコア上位だけ残します。"
     )
 
     st.caption("TV CSV = 構造検証・母集団 / Coinbase tape = テープ確認。TV CSVだけでTape-confirmedとは断定しません。")
@@ -2216,23 +2219,41 @@ def render_analysis(data):
     }
     filtered_important_points = important_points.copy()
     try:
-        if hide_low_confidence_points and len(filtered_important_points) > 0 and "squeeze_confidence" in filtered_important_points.columns:
-            conf = pd.to_numeric(filtered_important_points["squeeze_confidence"], errors="coerce").fillna(0)
+        if hide_low_confidence_points and len(filtered_important_points) > 0:
             is_squeeze = filtered_important_points["type"].isin(squeeze_point_types)
+            is_liquidity_thin = filtered_important_points["type"].eq("Liquidity thin move")
 
-            non_squeeze_points = filtered_important_points[~is_squeeze].copy()
+            other_points = filtered_important_points[~is_squeeze & ~is_liquidity_thin].copy()
+
+            # スクイーズ系は1種類に偏らないよう、typeごとに上位を残す。
             squeeze_points = filtered_important_points[is_squeeze].copy()
-            squeeze_points["_conf_for_filter"] = pd.to_numeric(squeeze_points["squeeze_confidence"], errors="coerce").fillna(0)
-
-            # まず閾値以上を残す。
-            keep_squeeze = squeeze_points[squeeze_points["_conf_for_filter"] >= float(min_squeeze_confidence)].copy()
-
-            # 閾値が厳しすぎて全消えするのを防ぐため、上位N件は残す。
-            top_squeeze = squeeze_points.sort_values(["_conf_for_filter", "score", "tape_score"], ascending=False).head(int(max_squeeze_icons))
-            keep_squeeze = pd.concat([keep_squeeze, top_squeeze], ignore_index=False).drop_duplicates(subset=["point_id"])
+            keep_squeeze_frames = []
+            if len(squeeze_points) > 0:
+                squeeze_points["_conf_for_filter"] = pd.to_numeric(squeeze_points["squeeze_confidence"], errors="coerce").fillna(0)
+                for point_type, sub in squeeze_points.groupby("type", sort=False):
+                    keep_by_threshold = sub[sub["_conf_for_filter"] >= float(min_squeeze_confidence)].copy()
+                    keep_by_rank = sub.sort_values(["_conf_for_filter", "score", "tape_score"], ascending=False).head(int(max_squeeze_icons))
+                    keep_type = pd.concat([keep_by_threshold, keep_by_rank], ignore_index=False).drop_duplicates(subset=["point_id"])
+                    keep_squeeze_frames.append(keep_type)
+            keep_squeeze = pd.concat(keep_squeeze_frames, ignore_index=False) if keep_squeeze_frames else squeeze_points.iloc[0:0].copy()
             keep_squeeze = keep_squeeze.drop(columns=["_conf_for_filter"], errors="ignore")
 
-            filtered_important_points = pd.concat([non_squeeze_points, keep_squeeze], ignore_index=False)
+            # Liquidity thin move は多くなりやすいので、スコア上位約1/3だけ残す。
+            liquidity_points = filtered_important_points[is_liquidity_thin].copy()
+            if len(liquidity_points) > 0:
+                liquidity_points["_liq_rank_score"] = (
+                    pd.to_numeric(liquidity_points.get("liquidity_thin_score", 0), errors="coerce").fillna(0) * 0.50 +
+                    pd.to_numeric(liquidity_points.get("delta_impact_score", 0), errors="coerce").fillna(0) * 0.20 +
+                    pd.to_numeric(liquidity_points.get("price_impact_per_BTC", 0), errors="coerce").fillna(0).clip(upper=100) * 0.20 +
+                    pd.to_numeric(liquidity_points.get("score", 0), errors="coerce").fillna(0) * 0.10
+                )
+                keep_n = max(1, int(round(len(liquidity_points) * float(liquidity_keep_pct) / 100.0)))
+                keep_liquidity = liquidity_points.sort_values("_liq_rank_score", ascending=False).head(keep_n)
+                keep_liquidity = keep_liquidity.drop(columns=["_liq_rank_score"], errors="ignore")
+            else:
+                keep_liquidity = liquidity_points
+
+            filtered_important_points = pd.concat([other_points, keep_squeeze, keep_liquidity], ignore_index=False)
             filtered_important_points = filtered_important_points.sort_values(["time_5m", "icon_side", "score"], ascending=[True, True, False]).copy()
     except Exception:
         pass
@@ -2240,7 +2261,7 @@ def render_analysis(data):
     if len(important_points) != len(filtered_important_points):
         hidden_count = len(important_points) - len(filtered_important_points)
         st.markdown(
-            f'<div class="tiny-status">Squeeze filter: confidence >= {float(min_squeeze_confidence):.1f}% or top {int(max_squeeze_icons)} squeeze points / hidden {hidden_count}</div>',
+            f'<div class="tiny-status">Icon filter: squeeze confidence >= {float(min_squeeze_confidence):.1f}% or top {int(max_squeeze_icons)} per type / liquidity thin top {float(liquidity_keep_pct):.0f}% / hidden {hidden_count}</div>',
             unsafe_allow_html=True
         )
 
