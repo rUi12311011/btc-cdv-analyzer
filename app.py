@@ -594,13 +594,14 @@ with st.sidebar:
     st.markdown("### Big Spike / Squeeze Mode")
 
     big_spike_only_mode = st.checkbox(
-        "500ドル級だけ表示",
+        "Big Spike / Squeeze Mode",
         value=True,
-        help="5分足1本で大きく走る候補だけを残します。通常のL5/S5や小さいsetupは非表示にします。"
+        help="吸収起点で、5分足1本のスパイク距離が設定値以上になった候補だけをImportant Pointsに残します。"
     )
 
-    min_spike_usd_raw = st.text_input("Min 5m Spike USD", value="500")
-    min_spike_usd = safe_float_input(min_spike_usd_raw, default=500.0, min_value=50.0, max_value=5000.0)
+    min_spike_usd_raw = st.text_input("Min 5m Spike USD", value="300")
+    min_spike_usd = safe_float_input(min_spike_usd_raw, default=300.0, min_value=50.0, max_value=5000.0)
+    st.caption("目安: 300 = 候補を拾う / 400 = 強い候補だけ / 500 = 超大型だけ")
 
     hide_low_confidence_points = st.checkbox(
         "Filter chart points",
@@ -1712,7 +1713,7 @@ def analyze_tradingview_probability(tv_csv_files, lookahead_bars=6):
 # 重要ポイント自動抽出
 # =========================================================
 
-def detect_important_points(summary_5m, tv_probability_stats=None, min_spike_usd=500.0, big_spike_only_mode=True):
+def detect_important_points(summary_5m, tv_probability_stats=None, min_spike_usd=300.0, big_spike_only_mode=True):
     """Absorption-first classifier.
 
     This app is not an entry engine. It classifies whether an absorption area later behaves as
@@ -1828,24 +1829,54 @@ def detect_important_points(summary_5m, tv_probability_stats=None, min_spike_usd
         return min(100, score)
 
     def up_spike_distance(row, base_level=None):
-        base = safe_float(base_level, safe_float(row.get("open", 0))) if base_level is not None else safe_float(row.get("open", 0))
+        # Big Modeは「5分足1本で動いた距離」を見る。吸収水準からの累積距離は含めない。
         return max(
             safe_float(row.get("high", 0)) - safe_float(row.get("open", 0)),
-            safe_float(row.get("high", 0)) - base,
             abs(safe_float(row.get("candle_move", 0))) if safe_float(row.get("candle_move", 0)) > 0 else 0
         )
 
     def down_spike_distance(row, base_level=None):
-        base = safe_float(base_level, safe_float(row.get("open", 0))) if base_level is not None else safe_float(row.get("open", 0))
         return max(
             safe_float(row.get("open", 0)) - safe_float(row.get("low", 0)),
-            base - safe_float(row.get("low", 0)),
             abs(safe_float(row.get("candle_move", 0))) if safe_float(row.get("candle_move", 0)) < 0 else 0
         )
 
     def is_big_spike(row, direction, base_level=None):
         d = up_spike_distance(row, base_level) if direction == "up" else down_spike_distance(row, base_level)
         return d >= float(min_spike_usd), d
+
+    def select_spike_event(candidates, direction, base_level):
+        """通常モードは最初のブレイク、Big Modeはlookahead内で最大の本命スパイクを選ぶ。"""
+        if candidates is None or len(candidates) == 0:
+            return None
+
+        ranked = []
+        for _, candidate in candidates.iterrows():
+            big_ok, distance = is_big_spike(candidate, direction, base_level)
+            if big_spike_only_mode and not big_ok:
+                continue
+            ranked.append((distance, candidate))
+
+        if not ranked:
+            return None
+        if big_spike_only_mode:
+            return max(ranked, key=lambda x: x[0])
+        return ranked[0]
+
+    def dominant_big_event(up_event, down_event, normal_preferred="up"):
+        available = [
+            (direction, event)
+            for direction, event in [("up", up_event), ("down", down_event)]
+            if event is not None
+        ]
+        if not available:
+            return None, None
+        if not big_spike_only_mode:
+            preferred = up_event if normal_preferred == "up" else down_event
+            if preferred is not None:
+                return normal_preferred, preferred
+            return available[0]
+        return max(available, key=lambda x: x[1][0])
 
     lookahead = 6
 
@@ -1869,17 +1900,18 @@ def detect_important_points(summary_5m, tv_probability_stats=None, min_spike_usd
                 (future["sell_ratio_%"] >= 55) &
                 (future["candle_move"] < 0)
             ]
+            up_event = select_spike_event(future_up, "up", absorption_high)
+            down_event = select_spike_event(future_down, "down", absorption_low)
+            dominant_direction, dominant_event = dominant_big_event(up_event, down_event, normal_preferred="up")
 
             setup_visible = not big_spike_only_mode
             if big_spike_only_mode:
-                if len(future_up) > 0:
-                    setup_visible = setup_visible or is_big_spike(future_up.iloc[0], "up", absorption_high)[0]
-                if len(future_down) > 0:
-                    setup_visible = setup_visible or is_big_spike(future_down.iloc[0], "down", absorption_low)[0]
+                setup_visible = dominant_direction == "up"
 
             if setup_visible:
                 setup_tape = tape_score_for(row, "up")
                 setup_confidence = min(75, 35 + setup_tape * 0.35)
+                setup_spike_dist = up_event[0] if up_event is not None else pd.NA
                 add_point(
                     row,
                     "Short squeeze setup",
@@ -1895,13 +1927,14 @@ def detect_important_points(summary_5m, tv_probability_stats=None, min_spike_usd
                     status="Short squeeze setup / waiting for absorption high break",
                     tape_score=setup_tape,
                     squeeze_confidence=setup_confidence,
-                    memo="このアイコンは500ドル級スパイクにつながった吸収予兆だけを表示対象にしています。",
-                    spot_price=row["high"]
+                    memo=f"Big Modeでは設定値 {float(min_spike_usd):.0f} USD以上の本命スパイクにつながった吸収予兆だけを表示します。",
+                    spot_price=row["high"],
+                    spike_distance_usd=setup_spike_dist
                 )
 
-            if len(future_up) > 0:
-                trigger = future_up.iloc[0]
-                big_ok, spike_dist = is_big_spike(trigger, "up", absorption_high)
+            if dominant_direction == "up" or (not big_spike_only_mode and up_event is not None):
+                spike_dist, trigger = up_event
+                big_ok = spike_dist >= float(min_spike_usd)
                 if big_ok or not big_spike_only_mode:
                     tape = tape_score_for(trigger, "up")
                     confidence = 55 + min(35, tape * 0.35)
@@ -1922,13 +1955,13 @@ def detect_important_points(summary_5m, tv_probability_stats=None, min_spike_usd
                     status="吸収高値を上抜け。Short squeeze trigger。",
                     tape_score=tape,
                     squeeze_confidence=confidence,
-                    memo="sell吸収を起点に上方向へブレイク。500ドル級の大きいスパイク候補として評価。",
+                    memo=f"sell吸収を起点に上方向へブレイク。設定値 {float(min_spike_usd):.0f} USD以上の大きいスパイク候補として評価。",
                     spot_price=trigger["close"],
                     spike_distance_usd=spike_dist
                 )
-            elif len(future_down) > 0:
-                fail = future_down.iloc[0]
-                big_ok, spike_dist = is_big_spike(fail, "down", absorption_low)
+            elif dominant_direction == "down" or (not big_spike_only_mode and down_event is not None):
+                spike_dist, fail = down_event
+                big_ok = spike_dist >= float(min_spike_usd)
                 if big_ok or not big_spike_only_mode:
                     tape = tape_score_for(fail, "down")
                     confidence = min(95, 58 + tape * 0.35 + min(10, safe_float(fail.get("liquidity_thin_score", 0)) * 0.08))
@@ -1949,7 +1982,7 @@ def detect_important_points(summary_5m, tv_probability_stats=None, min_spike_usd
                     status="Support failed / downside spike risk",
                     tape_score=tape,
                     squeeze_confidence=confidence,
-                    memo="吸収が支えにならず逆方向に抜けた。500ドル級の大きい下方向スパイク候補だけを重視。",
+                    memo=f"吸収が支えにならず逆方向に抜けた。設定値 {float(min_spike_usd):.0f} USD以上の下方向スパイク候補を重視。",
                     spot_price=fail["close"],
                     spike_distance_usd=spike_dist
                 )
@@ -1991,17 +2024,18 @@ def detect_important_points(summary_5m, tv_probability_stats=None, min_spike_usd
                 (future["buy_ratio_%"] >= 55) &
                 (future["candle_move"] > 0)
             ]
+            down_event = select_spike_event(future_down, "down", absorption_low)
+            up_event = select_spike_event(future_up, "up", absorption_high)
+            dominant_direction, dominant_event = dominant_big_event(up_event, down_event, normal_preferred="down")
 
             setup_visible = not big_spike_only_mode
             if big_spike_only_mode:
-                if len(future_down) > 0:
-                    setup_visible = setup_visible or is_big_spike(future_down.iloc[0], "down", absorption_low)[0]
-                if len(future_up) > 0:
-                    setup_visible = setup_visible or is_big_spike(future_up.iloc[0], "up", absorption_high)[0]
+                setup_visible = dominant_direction == "down"
 
             if setup_visible:
                 setup_tape = tape_score_for(row, "down")
                 setup_confidence = min(75, 35 + setup_tape * 0.35)
+                setup_spike_dist = down_event[0] if down_event is not None else pd.NA
                 add_point(
                     row,
                     "Long squeeze setup",
@@ -2017,13 +2051,14 @@ def detect_important_points(summary_5m, tv_probability_stats=None, min_spike_usd
                     status="Long squeeze setup / waiting for absorption low break",
                     tape_score=setup_tape,
                     squeeze_confidence=setup_confidence,
-                    memo="このアイコンは500ドル級スパイクにつながった吸収予兆だけを表示対象にしています。",
-                    spot_price=row["low"]
+                    memo=f"Big Modeでは設定値 {float(min_spike_usd):.0f} USD以上の本命スパイクにつながった吸収予兆だけを表示します。",
+                    spot_price=row["low"],
+                    spike_distance_usd=setup_spike_dist
                 )
 
-            if len(future_down) > 0:
-                trigger = future_down.iloc[0]
-                big_ok, spike_dist = is_big_spike(trigger, "down", absorption_low)
+            if dominant_direction == "down" or (not big_spike_only_mode and down_event is not None):
+                spike_dist, trigger = down_event
+                big_ok = spike_dist >= float(min_spike_usd)
                 if big_ok or not big_spike_only_mode:
                     tape = tape_score_for(trigger, "down")
                     confidence = 55 + min(35, tape * 0.35)
@@ -2044,13 +2079,13 @@ def detect_important_points(summary_5m, tv_probability_stats=None, min_spike_usd
                     status="吸収安値を下抜け。Long squeeze trigger。",
                     tape_score=tape,
                     squeeze_confidence=confidence,
-                    memo="buy吸収を起点に下方向へブレイク。500ドル級の大きいスパイク候補として評価。",
+                    memo=f"buy吸収を起点に下方向へブレイク。設定値 {float(min_spike_usd):.0f} USD以上の大きいスパイク候補として評価。",
                     spot_price=trigger["close"],
                     spike_distance_usd=spike_dist
                 )
-            elif len(future_up) > 0:
-                fail = future_up.iloc[0]
-                big_ok, spike_dist = is_big_spike(fail, "up", absorption_high)
+            elif dominant_direction == "up" or (not big_spike_only_mode and up_event is not None):
+                spike_dist, fail = up_event
+                big_ok = spike_dist >= float(min_spike_usd)
                 if big_ok or not big_spike_only_mode:
                     tape = tape_score_for(fail, "up")
                     confidence = min(95, 58 + tape * 0.35 + min(10, safe_float(fail.get("liquidity_thin_score", 0)) * 0.08))
@@ -2071,7 +2106,7 @@ def detect_important_points(summary_5m, tv_probability_stats=None, min_spike_usd
                     status="Resistance failed / upside spike risk",
                     tape_score=tape,
                     squeeze_confidence=confidence,
-                    memo="吸収が抵抗にならず逆方向に抜けた。500ドル級の大きい上方向スパイク候補だけを重視。",
+                    memo=f"吸収が抵抗にならず逆方向に抜けた。設定値 {float(min_spike_usd):.0f} USD以上の上方向スパイク候補を重視。",
                     spot_price=fail["close"],
                     spike_distance_usd=spike_dist
                 )
@@ -2143,6 +2178,24 @@ def detect_important_points(summary_5m, tv_probability_stats=None, min_spike_usd
         return pd.DataFrame()
 
     points = pd.DataFrame(rows)
+    if big_spike_only_mode:
+        big_mode_types = {
+            "Short squeeze setup",
+            "Short squeeze trigger",
+            "Long squeeze setup",
+            "Long squeeze trigger",
+            "Tape-confirmed squeeze",
+            "Upside spike risk",
+            "Downside spike risk",
+        }
+        spike_distances = pd.to_numeric(points["spike_distance_usd"], errors="coerce")
+        points = points[
+            points["type"].isin(big_mode_types) &
+            (spike_distances >= float(min_spike_usd))
+        ].copy()
+        if len(points) == 0:
+            return pd.DataFrame()
+
     points = points.drop_duplicates(subset=["time_5m", "type", "absorption_high", "absorption_low"])
     points = points.sort_values(["score", "tape_score", "volume_BTC"], ascending=False).reset_index(drop=True)
 
@@ -2491,13 +2544,6 @@ def render_analysis(data):
         if "selected_point_id" not in st.session_state or st.session_state["selected_point_id"] not in valid_ids:
             st.session_state["selected_point_id"] = valid_ids[0]
 
-        st.subheader(ui_text("重要ポイント", "Important Points"))
-
-        display_points = filtered_important_points.copy().reset_index(drop=True)
-        display_points["Focus"] = display_points["point_id"] == st.session_state["selected_point_id"]
-        display_points["time"] = display_points["time_5m"].dt.strftime("%m/%d %H:%M")
-        display_points["type_label"] = display_points["type"].apply(ui_label)
-
         editor_columns = [
             "Focus", "No", "time", "type_label", "score", "reason",
             "support_or_resistance_status", "squeeze_confidence", "historical_probability_%", "tape_score",
@@ -2509,35 +2555,92 @@ def render_analysis(data):
             "volume_BTC", "delta_BTC",
             "buy_ratio_%", "sell_ratio_%"
         ]
-        editor_columns = [c for c in editor_columns if c in display_points.columns]
-        editor_df = display_points[editor_columns]
 
-        edited_points = st.data_editor(
-            editor_df,
-            use_container_width=True,
-            hide_index=True,
-            disabled=[c for c in editor_df.columns if c != "Focus"],
-            column_config={
-                "Focus": st.column_config.CheckboxColumn(
-                    "Focus",
-                    help="Check one row to update Selected Point Details.",
-                    default=False
-                ),
-                "type_label": st.column_config.TextColumn(ui_text("種類", "Type")),
-            },
-            key=f"important_points_editor_{product_id}_{range_start.strftime('%Y%m%d%H%M%S')}_{range_end.strftime('%Y%m%d%H%M%S')}_{len(filtered_important_points)}"
+        def render_point_focus_table(points_subset, title_ja, title_en, table_key):
+            st.subheader(ui_text(title_ja, title_en))
+            if points_subset is None or len(points_subset) == 0:
+                st.caption(ui_text("該当するポイントはありません。", "No matching points."))
+                return
+
+            display_points = points_subset.copy().reset_index(drop=True)
+            display_points["Focus"] = display_points["point_id"] == st.session_state["selected_point_id"]
+            display_points["time"] = display_points["time_5m"].dt.strftime("%m/%d %H:%M")
+            display_points["type_label"] = display_points["type"].apply(ui_label)
+
+            visible_columns = [c for c in editor_columns if c in display_points.columns]
+            editor_df = display_points[visible_columns]
+            edited_points = st.data_editor(
+                editor_df,
+                use_container_width=True,
+                hide_index=True,
+                disabled=[c for c in editor_df.columns if c != "Focus"],
+                column_config={
+                    "Focus": st.column_config.CheckboxColumn(
+                        "Focus",
+                        help="Check one row to update Selected Point Details.",
+                        default=False
+                    ),
+                    "type_label": st.column_config.TextColumn(ui_text("種類", "Type")),
+                    "spike_distance_usd": st.column_config.NumberColumn(
+                        ui_text("スパイク距離", "Spike distance USD"),
+                        format="%.1f"
+                    ),
+                    "min_spike_usd": st.column_config.NumberColumn(
+                        ui_text("最小スパイク距離", "Min spike USD"),
+                        format="%.1f"
+                    ),
+                },
+                key=(
+                    f"important_points_editor_{table_key}_{product_id}_"
+                    f"{range_start.strftime('%Y%m%d%H%M%S')}_{range_end.strftime('%Y%m%d%H%M%S')}_"
+                    f"{len(points_subset)}"
+                )
+            )
+
+            checked_rows = edited_points.index[edited_points["Focus"] == True].tolist()
+            if checked_rows:
+                current_rows = display_points.index[
+                    display_points["point_id"] == st.session_state["selected_point_id"]
+                ].tolist()
+                current_row = current_rows[0] if current_rows else None
+                new_rows = [r for r in checked_rows if r != current_row]
+                chosen_row = new_rows[-1] if new_rows else checked_rows[-1]
+                new_point_id = display_points.iloc[chosen_row]["point_id"]
+                if new_point_id != st.session_state["selected_point_id"]:
+                    st.session_state["selected_point_id"] = new_point_id
+                    st.rerun()
+
+        pre_spike_types = {
+            "Short squeeze setup",
+            "Long squeeze setup",
+        }
+        confirmation_types = {
+            "Upside spike risk",
+            "Downside spike risk",
+            "Short squeeze trigger",
+            "Long squeeze trigger",
+            "Tape-confirmed squeeze",
+        }
+
+        pre_spike_points = filtered_important_points[
+            filtered_important_points["type"].isin(pre_spike_types)
+        ].copy()
+        confirmation_points = filtered_important_points[
+            filtered_important_points["type"].isin(confirmation_types)
+        ].copy()
+
+        render_point_focus_table(
+            pre_spike_points,
+            "スパイク前兆",
+            "Pre-spike Watch",
+            "pre_spike"
         )
-
-        checked_rows = edited_points.index[edited_points["Focus"] == True].tolist()
-        if checked_rows:
-            current_rows = display_points.index[display_points["point_id"] == st.session_state["selected_point_id"]].tolist()
-            current_row = current_rows[0] if current_rows else None
-            new_rows = [r for r in checked_rows if r != current_row]
-            chosen_row = new_rows[-1] if new_rows else checked_rows[-1]
-            new_point_id = display_points.iloc[chosen_row]["point_id"]
-            if new_point_id != st.session_state["selected_point_id"]:
-                st.session_state["selected_point_id"] = new_point_id
-                st.rerun()
+        render_point_focus_table(
+            confirmation_points,
+            "発火確認",
+            "Spike / Squeeze Confirmation",
+            "confirmation"
+        )
 
         selected_point = filtered_important_points[
             filtered_important_points["point_id"] == st.session_state["selected_point_id"]
@@ -2584,6 +2687,8 @@ def render_analysis(data):
     if selected_point is not None:
         hist_prob = selected_point.get("historical_probability_%", pd.NA)
         hist_prob_text = "N/A" if pd.isna(hist_prob) else f"{float(hist_prob):.1f}%"
+        spike_distance = selected_point.get("spike_distance_usd", pd.NA)
+        spike_distance_text = "N/A" if pd.isna(spike_distance) else f"{float(spike_distance):.1f} USD"
         selected_label_display = (
             f"{int(selected_point.get('No', 0))}. {pd.Timestamp(selected_point['time_5m']).strftime('%m/%d %H:%M')} | "
             f"{ui_label(selected_point['type'])} | score {float(selected_point.get('score', 0)):.1f} | close {float(selected_point.get('close', 0)):.2f}"
@@ -2597,6 +2702,8 @@ def render_analysis(data):
                 <div class="metric-value">{float(selected_point.get('squeeze_confidence', 0)):.1f}%</div>
                 <div class="metric-label" style="margin-top:6px;">{ui_text('過去構造確率 / TV CSV', 'Historical Probability / TV CSV')}</div>
                 <div class="metric-value">{hist_prob_text}</div>
+                <div class="metric-label" style="margin-top:6px;">{ui_text('スパイク距離', 'Spike distance USD')}</div>
+                <div class="metric-value">{spike_distance_text}</div>
                 <div class="metric-label" style="margin-top:6px;">{ui_text('理由', 'Reason')}</div>
                 <div style="font-size:11px; line-height:1.45; color:#c8c3b8;">{selected_point['reason']}</div>
                 <div class="metric-label" style="margin-top:6px;">{ui_text('状態 / メモ', 'Status / Memo')}</div>
