@@ -438,6 +438,8 @@ with st.sidebar:
             visible_icon_types.append("Short squeeze trigger")
         if st.checkbox("Tape sqz", value=True, key="vis_tape_squeeze"):
             visible_icon_types.append("Tape-confirmed squeeze")
+        if st.checkbox("Spike risk", value=True, key="vis_spike_risk"):
+            visible_icon_types.extend(["Upside spike risk", "Downside spike risk"])
         if st.checkbox("Buy Conf", value=False, key="vis_buy_conf"):
             visible_icon_types.append("Buy confirmation")
 
@@ -461,6 +463,8 @@ with st.sidebar:
         "Long squeeze setup",
         "Long squeeze trigger",
         "Tape-confirmed squeeze",
+        "Upside spike risk",
+        "Downside spike risk",
         "Liquidity thin move",
         "Buy confirmation",
         "Sell confirmation",
@@ -791,6 +795,8 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             "Long squeeze trigger": "#c1121f",
             "Tape-confirmed squeeze": "#c1121f",
             "Liquidity thin move": "#4f4f4f",
+            "Upside spike risk": "#c1121f",
+            "Downside spike risk": "#c1121f",
             "Failed breakout": "#8f0d17",
         })
         marker_symbols.update({
@@ -802,6 +808,8 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             "Long squeeze trigger": "asterisk",
             "Tape-confirmed squeeze": "star-diamond",
             "Liquidity thin move": "diamond-open",
+            "Upside spike risk": "arrow-up",
+            "Downside spike risk": "arrow-down",
             "Failed breakout": "x",
         })
         marker_line_colors.update({
@@ -813,6 +821,8 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             "Long squeeze trigger": "#c1121f",
             "Tape-confirmed squeeze": "#c1121f",
             "Liquidity thin move": "#4f4f4f",
+            "Upside spike risk": "#c1121f",
+            "Downside spike risk": "#c1121f",
             "Failed breakout": "#8f0d17",
         })
         marker_sizes.update({
@@ -824,6 +834,8 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             "Long squeeze trigger": 16,
             "Tape-confirmed squeeze": 17,
             "Liquidity thin move": 12,
+            "Upside spike risk": 17,
+            "Downside spike risk": 17,
             "Failed breakout": 13,
         })
         marker_line_widths.update({
@@ -835,6 +847,8 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             "Long squeeze trigger": 1.6,
             "Tape-confirmed squeeze": 1.7,
             "Liquidity thin move": 1.2,
+            "Upside spike risk": 1.8,
+            "Downside spike risk": 1.8,
             "Failed breakout": 1.5,
         })
 
@@ -1745,20 +1759,27 @@ def detect_important_points(summary_5m, tv_probability_stats=None):
                 )
             elif len(future_down) > 0:
                 fail = future_down.iloc[0]
+                tape = tape_score_for(fail, "down")
+                confidence = min(95, 58 + tape * 0.35 + min(10, safe_float(fail.get("liquidity_thin_score", 0)) * 0.08))
                 add_point(
-                    row,
-                    "Failed breakout",
-                    score=70,
-                    reason=f"sell吸収後に吸収足安値 {absorption_low:.2f} を下抜け。Support候補は失敗。",
+                    fail,
+                    "Downside spike risk",
+                    score=86,
+                    reason=(
+                        f"{row['time_5m']} のsell吸収＝Support候補が失敗。"
+                        f"吸収足安値 {absorption_low:.2f} を下抜け、sell比率 {fail['sell_ratio_%']:.1f}%、"
+                        f"delta {fail['delta_BTC']:.2f} BTC、liquidity_thin_score {safe_float(fail.get('liquidity_thin_score', 0)):.1f}。"
+                        f"下方向のStop-run / Spike risk。"
+                    ),
                     absorption_high=absorption_high,
                     absorption_low=absorption_low,
-                    break_level=absorption_high,
-                    invalid_level=absorption_low,
-                    status="Support failed",
-                    tape_score=tape_score_for(fail, "down"),
-                    squeeze_confidence=0,
-                    memo="売り吸収が支えにならず、下に抜けた。スクイーズ候補ではなくSupport失敗。",
-                    spot_price=row["low"]
+                    break_level=absorption_low,
+                    invalid_level=absorption_high,
+                    status="Support failed / downside spike risk",
+                    tape_score=tape,
+                    squeeze_confidence=confidence,
+                    memo="吸収が支えにならず逆方向に抜けた。単なるFailed breakoutではなく、流動性が薄い方向へのスパイク警戒。",
+                    spot_price=fail["close"]
                 )
             else:
                 add_point(
@@ -1845,20 +1866,27 @@ def detect_important_points(summary_5m, tv_probability_stats=None):
                 )
             elif len(future_up) > 0:
                 fail = future_up.iloc[0]
+                tape = tape_score_for(fail, "up")
+                confidence = min(95, 58 + tape * 0.35 + min(10, safe_float(fail.get("liquidity_thin_score", 0)) * 0.08))
                 add_point(
-                    row,
-                    "Failed breakout",
-                    score=70,
-                    reason=f"buy吸収後に吸収足高値 {absorption_high:.2f} を上抜け。Resistance候補は失敗。",
+                    fail,
+                    "Upside spike risk",
+                    score=86,
+                    reason=(
+                        f"{row['time_5m']} のbuy吸収＝Resistance候補が失敗。"
+                        f"吸収足高値 {absorption_high:.2f} を上抜け、buy比率 {fail['buy_ratio_%']:.1f}%、"
+                        f"delta {fail['delta_BTC']:.2f} BTC、liquidity_thin_score {safe_float(fail.get('liquidity_thin_score', 0)):.1f}。"
+                        f"上方向のStop-run / Spike risk。"
+                    ),
                     absorption_high=absorption_high,
                     absorption_low=absorption_low,
-                    break_level=absorption_low,
-                    invalid_level=absorption_high,
-                    status="Resistance failed",
-                    tape_score=tape_score_for(fail, "up"),
-                    squeeze_confidence=0,
-                    memo="買い吸収が抵抗にならず、上に抜けた。スクイーズ候補ではなくResistance失敗。",
-                    spot_price=row["high"]
+                    break_level=absorption_high,
+                    invalid_level=absorption_low,
+                    status="Resistance failed / upside spike risk",
+                    tape_score=tape,
+                    squeeze_confidence=confidence,
+                    memo="吸収が抵抗にならず逆方向に抜けた。単なるFailed breakoutではなく、流動性が薄い方向へのスパイク警戒。",
+                    spot_price=fail["close"]
                 )
             else:
                 add_point(
@@ -2216,6 +2244,8 @@ def render_analysis(data):
         "Long squeeze setup",
         "Long squeeze trigger",
         "Tape-confirmed squeeze",
+        "Upside spike risk",
+        "Downside spike risk",
     }
     filtered_important_points = important_points.copy()
     try:
@@ -2328,6 +2358,8 @@ def render_analysis(data):
             "Short squeeze trigger",
             "Long squeeze trigger",
             "Tape-confirmed squeeze",
+            "Upside spike risk",
+            "Downside spike risk",
         }
         if selected_point["type"] in auto_detail_types:
             auto_detail_time = selected_point["time_5m"].strftime("%Y-%m-%d %H:%M:%S")
