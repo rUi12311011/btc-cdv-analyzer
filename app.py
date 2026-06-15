@@ -171,6 +171,38 @@ st.markdown(
         color: #e6e2d9 !important;
     }
 
+    .custom-chart-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 10px;
+        align-items: center;
+        background: rgba(170,170,170,0.72);
+        border: 1px solid #333333;
+        border-radius: 0px;
+        padding: 5px 7px;
+        margin-top: -4px;
+        margin-bottom: 10px;
+        color: #111111;
+        font-size: 10px;
+        line-height: 1.15;
+    }
+
+    .legend-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+    }
+
+    .legend-symbol {
+        display: inline-block;
+        width: 12px;
+        text-align: center;
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 1;
+    }
+
     .stButton > button {
         background-color: #c1121f;
         color: #f4f1ea;
@@ -769,11 +801,11 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
         marker_sizes = {
             "Buy absorption": 13,
             "Sell absorption": 13,
-            "Buy confirmation": 16,
-            "Sell confirmation": 20,
-            "Short squeeze candidate": 15,
-            "Long squeeze candidate": 15,
-            "High volume": 12
+            "Buy confirmation": 11,
+            "Sell confirmation": 12,
+            "Short squeeze candidate": 11,
+            "Long squeeze candidate": 11,
+            "High volume": 9
         }
 
         marker_line_widths = {
@@ -804,10 +836,10 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             "Resistance candidate": "triangle-down-open",
             "Short squeeze setup": "star-open",
             "Short squeeze trigger": "star",
-            "Long squeeze setup": "asterisk-open",
+            "Long squeeze setup": "x-open",
             "Long squeeze trigger": "asterisk",
-            "Tape-confirmed squeeze": "star-diamond",
-            "Liquidity thin move": "diamond-open",
+            "Tape-confirmed squeeze": "diamond",
+            "Liquidity thin move": "hexagon-open",
             "Upside spike risk": "arrow-up",
             "Downside spike risk": "arrow-down",
             "Failed breakout": "x",
@@ -826,17 +858,17 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
             "Failed breakout": "#8f0d17",
         })
         marker_sizes.update({
-            "Support candidate": 13,
-            "Resistance candidate": 13,
-            "Short squeeze setup": 14,
-            "Short squeeze trigger": 16,
-            "Long squeeze setup": 14,
-            "Long squeeze trigger": 16,
-            "Tape-confirmed squeeze": 17,
-            "Liquidity thin move": 12,
-            "Upside spike risk": 17,
-            "Downside spike risk": 17,
-            "Failed breakout": 13,
+            "Support candidate": 9,
+            "Resistance candidate": 9,
+            "Short squeeze setup": 10,
+            "Short squeeze trigger": 11,
+            "Long squeeze setup": 10,
+            "Long squeeze trigger": 11,
+            "Tape-confirmed squeeze": 11,
+            "Liquidity thin move": 9,
+            "Upside spike risk": 11,
+            "Downside spike risk": 11,
+            "Failed breakout": 10,
         })
         marker_line_widths.update({
             "Support candidate": 1.3,
@@ -1009,22 +1041,8 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
         paper_bgcolor="#9b9b9b",
         plot_bgcolor="#9b9b9b",
         font=dict(color="#111111"),
-        margin=dict(l=20, r=250, t=12, b=50),
-        showlegend=True,
-        legend=dict(
-            orientation="v",
-            yanchor="top",
-            y=1.0,
-            xanchor="left",
-            x=1.02,
-            bgcolor="rgba(170, 170, 170, 0.92)",
-            bordercolor="#111111",
-            borderwidth=1,
-            font=dict(size=10, color="#111111"),
-            itemwidth=30,
-            tracegroupgap=2,
-            itemsizing="constant"
-        )
+        margin=dict(l=20, r=70, t=12, b=55),
+        showlegend=False
     )
 
     fig.update_xaxes(
@@ -1038,11 +1056,66 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
         zerolinecolor="#9e9e9e"
     )
 
-    return st.plotly_chart(
+    st.plotly_chart(
         fig,
         use_container_width=True,
         key="main_chart"
     )
+
+    # Plotlyの凡例は種類が増えるとチャートやツールバーに被るため、
+    # チャート外に小型の独自凡例を出す。
+    legend_symbol_map = {
+        product_id: "▰",
+        "Volume": "▥",
+        "Support candidate": "△",
+        "Resistance candidate": "▽",
+        "Short squeeze setup": "☆",
+        "Short squeeze trigger": "★",
+        "Long squeeze setup": "✕",
+        "Long squeeze trigger": "✳",
+        "Tape-confirmed squeeze": "◆",
+        "Liquidity thin move": "⬡",
+        "Upside spike risk": "▲",
+        "Downside spike risk": "▼",
+        "Buy confirmation": "+",
+        "Sell confirmation": "−",
+        "Selected Spot": "○",
+    }
+    legend_color_map = {
+        product_id: "#111111",
+        "Volume": "#777777",
+        "Support candidate": "#111111",
+        "Resistance candidate": "#111111",
+        "Short squeeze setup": "#c1121f",
+        "Short squeeze trigger": "#c1121f",
+        "Long squeeze setup": "#c1121f",
+        "Long squeeze trigger": "#c1121f",
+        "Tape-confirmed squeeze": "#c1121f",
+        "Liquidity thin move": "#555555",
+        "Upside spike risk": "#c1121f",
+        "Downside spike risk": "#c1121f",
+        "Buy confirmation": "#111111",
+        "Sell confirmation": "#111111",
+        "Selected Spot": "#ffffff",
+    }
+
+    legend_items = [product_id, "Volume"]
+    if legend_types is not None:
+        legend_items += [x for x in legend_types if x in legend_symbol_map]
+    if selected_point is not None:
+        legend_items += ["Selected Spot"]
+    seen = set()
+    legend_items = [x for x in legend_items if not (x in seen or seen.add(x))]
+
+    legend_html = '<div class="custom-chart-legend">'
+    for item in legend_items:
+        sym = legend_symbol_map.get(item, "●")
+        col = legend_color_map.get(item, "#111111")
+        legend_html += f'<span class="legend-pill"><span class="legend-symbol" style="color:{col};">{sym}</span>{item}</span>'
+    legend_html += '</div>'
+    st.markdown(legend_html, unsafe_allow_html=True)
+
+    return None
 
 
 # =========================================================
