@@ -383,6 +383,46 @@ def safe_float_input(value, default, min_value=None, max_value=None):
     return v
 
 
+
+# =========================================================
+# UI 表示言語
+# =========================================================
+
+TYPE_LABEL_JA = {
+    "Support candidate": "サポート候補",
+    "Resistance candidate": "レジスタンス候補",
+    "Short squeeze setup": "ショートSQ予兆",
+    "Short squeeze trigger": "ショートSQ発火",
+    "Long squeeze setup": "ロングSQ予兆",
+    "Long squeeze trigger": "ロングSQ発火",
+    "Tape-confirmed squeeze": "テープ確認SQ",
+    "Liquidity thin move": "流動性薄い動き",
+    "Upside spike risk": "上方向スパイク警戒",
+    "Downside spike risk": "下方向スパイク警戒",
+    "Buy confirmation": "買い同期確認",
+    "Sell confirmation": "売り同期確認",
+    "Failed breakout": "ブレイク失敗",
+    "Volume": "出来高",
+    "Selected Spot": "選択地点",
+}
+
+
+def ui_label(name):
+    try:
+        if st.session_state.get("display_language", "日本語") == "日本語":
+            return TYPE_LABEL_JA.get(str(name), str(name))
+    except Exception:
+        pass
+    return str(name)
+
+
+def ui_text(ja, en):
+    try:
+        return ja if st.session_state.get("display_language", "日本語") == "日本語" else en
+    except Exception:
+        return ja
+
+
 # =========================================================
 # サイドバー入力
 # =========================================================
@@ -420,6 +460,13 @@ with st.sidebar:
     )
 
     st.markdown("### Settings")
+
+    display_language = st.selectbox(
+        "Display Language / 表示言語",
+        options=["日本語", "English"],
+        index=0,
+        key="display_language"
+    )
 
     product_id = st.text_input("Product ID", value="BTC-USD")
 
@@ -462,29 +509,29 @@ with st.sidebar:
     icon_col1, icon_col2 = st.columns(2)
 
     with icon_col1:
-        if st.checkbox("Support", value=True, key="vis_support_candidate"):
+        if st.checkbox(ui_label("Support candidate"), value=True, key="vis_support_candidate"):
             visible_icon_types.append("Support candidate")
-        if st.checkbox("Short setup", value=True, key="vis_short_setup"):
+        if st.checkbox(ui_label("Short squeeze setup"), value=True, key="vis_short_setup"):
             visible_icon_types.append("Short squeeze setup")
-        if st.checkbox("Short trigger", value=True, key="vis_short_trigger"):
+        if st.checkbox(ui_label("Short squeeze trigger"), value=True, key="vis_short_trigger"):
             visible_icon_types.append("Short squeeze trigger")
-        if st.checkbox("Tape sqz", value=True, key="vis_tape_squeeze"):
+        if st.checkbox(ui_label("Tape-confirmed squeeze"), value=True, key="vis_tape_squeeze"):
             visible_icon_types.append("Tape-confirmed squeeze")
-        if st.checkbox("Spike risk", value=True, key="vis_spike_risk"):
+        if st.checkbox(ui_text("スパイク警戒", "Spike risk"), value=True, key="vis_spike_risk"):
             visible_icon_types.extend(["Upside spike risk", "Downside spike risk"])
-        if st.checkbox("Buy Conf", value=False, key="vis_buy_conf"):
+        if st.checkbox(ui_label("Buy confirmation"), value=False, key="vis_buy_conf"):
             visible_icon_types.append("Buy confirmation")
 
     with icon_col2:
-        if st.checkbox("Resistance", value=True, key="vis_resistance_candidate"):
+        if st.checkbox(ui_label("Resistance candidate"), value=True, key="vis_resistance_candidate"):
             visible_icon_types.append("Resistance candidate")
-        if st.checkbox("Long setup", value=True, key="vis_long_setup"):
+        if st.checkbox(ui_label("Long squeeze setup"), value=True, key="vis_long_setup"):
             visible_icon_types.append("Long squeeze setup")
-        if st.checkbox("Long trigger", value=True, key="vis_long_trigger"):
+        if st.checkbox(ui_label("Long squeeze trigger"), value=True, key="vis_long_trigger"):
             visible_icon_types.append("Long squeeze trigger")
-        if st.checkbox("Thin move", value=True, key="vis_liquidity_thin"):
+        if st.checkbox(ui_label("Liquidity thin move"), value=True, key="vis_liquidity_thin"):
             visible_icon_types.append("Liquidity thin move")
-        if st.checkbox("Sell Conf", value=False, key="vis_sell_conf"):
+        if st.checkbox(ui_label("Sell confirmation"), value=False, key="vis_sell_conf"):
             visible_icon_types.append("Sell confirmation")
 
     icon_type_options = [
@@ -1111,7 +1158,7 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
     for item in legend_items:
         sym = legend_symbol_map.get(item, "●")
         col = legend_color_map.get(item, "#111111")
-        legend_html += f'<span class="legend-pill"><span class="legend-symbol" style="color:{col};">{sym}</span>{item}</span>'
+        legend_html += f'<span class="legend-pill"><span class="legend-symbol" style="color:{col};">{sym}</span>{ui_label(item)}</span>'
     legend_html += '</div>'
     st.markdown(legend_html, unsafe_allow_html=True)
 
@@ -2302,7 +2349,7 @@ def render_analysis(data):
     stats_table = tv_probability_stats.get("stats_table", pd.DataFrame()) if isinstance(tv_probability_stats, dict) else pd.DataFrame()
     events_table = tv_probability_stats.get("events_table", pd.DataFrame()) if isinstance(tv_probability_stats, dict) else pd.DataFrame()
     if stats_table is not None and len(stats_table) > 0:
-        st.subheader("TradingView CSV Probability Baseline")
+        st.subheader(ui_text("TradingView CSV 確率ベースライン", "TradingView CSV Probability Baseline"))
         st.caption("Historical ProbabilityはTradingView CSV由来の構造確率です。Coinbase tapeによるTape-confirmed判定ではありません。")
         st.dataframe(stats_table, use_container_width=True, hide_index=True)
         with st.expander("TradingView CSV absorption events", expanded=False):
@@ -2380,14 +2427,15 @@ def render_analysis(data):
         if "selected_point_id" not in st.session_state or st.session_state["selected_point_id"] not in valid_ids:
             st.session_state["selected_point_id"] = valid_ids[0]
 
-        st.subheader("Important Points")
+        st.subheader(ui_text("重要ポイント", "Important Points"))
 
         display_points = filtered_important_points.copy().reset_index(drop=True)
         display_points["Focus"] = display_points["point_id"] == st.session_state["selected_point_id"]
         display_points["time"] = display_points["time_5m"].dt.strftime("%m/%d %H:%M")
+        display_points["type_label"] = display_points["type"].apply(ui_label)
 
         editor_columns = [
-            "Focus", "No", "time", "type", "score", "reason",
+            "Focus", "No", "time", "type_label", "score", "reason",
             "support_or_resistance_status", "squeeze_confidence", "historical_probability_%", "tape_score",
             "absorption_high", "absorption_low", "break_level", "invalid_level",
             "price_impact_per_BTC", "liquidity_thin_score", "delta_impact_score",
@@ -2409,7 +2457,8 @@ def render_analysis(data):
                     "Focus",
                     help="Check one row to update Selected Point Details.",
                     default=False
-                )
+                ),
+                "type_label": st.column_config.TextColumn(ui_text("種類", "Type")),
             },
             key=f"important_points_editor_{product_id}_{range_start.strftime('%Y%m%d%H%M%S')}_{range_end.strftime('%Y%m%d%H%M%S')}_{len(filtered_important_points)}"
         )
@@ -2444,7 +2493,7 @@ def render_analysis(data):
                 st.session_state["pending_detail_5m_start_str"] = auto_detail_time
                 st.rerun()
 
-    st.subheader("Coinbase 5m Chart")
+    st.subheader(ui_text("Coinbase 5分足チャート", "Coinbase 5m Chart"))
 
     chart_points = filtered_important_points
     if len(filtered_important_points) > 0 and len(visible_icon_types) > 0:
@@ -2470,18 +2519,22 @@ def render_analysis(data):
     if selected_point is not None:
         hist_prob = selected_point.get("historical_probability_%", pd.NA)
         hist_prob_text = "N/A" if pd.isna(hist_prob) else f"{float(hist_prob):.1f}%"
+        selected_label_display = (
+            f"{int(selected_point.get('No', 0))}. {pd.Timestamp(selected_point['time_5m']).strftime('%m/%d %H:%M')} | "
+            f"{ui_label(selected_point['type'])} | score {float(selected_point.get('score', 0)):.1f} | close {float(selected_point.get('close', 0)):.2f}"
+        )
         st.markdown(
             f"""
             <div class="metric-card">
-                <div class="metric-label">Selected Point Details</div>
-                <div class="metric-value">{selected_point['label']}</div>
-                <div class="metric-label" style="margin-top:6px;">Squeeze Confidence</div>
+                <div class="metric-label">{ui_text('選択ポイント詳細', 'Selected Point Details')}</div>
+                <div class="metric-value">{selected_label_display}</div>
+                <div class="metric-label" style="margin-top:6px;">{ui_text('スクイーズ確度', 'Squeeze Confidence')}</div>
                 <div class="metric-value">{float(selected_point.get('squeeze_confidence', 0)):.1f}%</div>
-                <div class="metric-label" style="margin-top:6px;">Historical Probability / TV CSV</div>
+                <div class="metric-label" style="margin-top:6px;">{ui_text('過去構造確率 / TV CSV', 'Historical Probability / TV CSV')}</div>
                 <div class="metric-value">{hist_prob_text}</div>
-                <div class="metric-label" style="margin-top:6px;">Reason</div>
+                <div class="metric-label" style="margin-top:6px;">{ui_text('理由', 'Reason')}</div>
                 <div style="font-size:11px; line-height:1.45; color:#c8c3b8;">{selected_point['reason']}</div>
-                <div class="metric-label" style="margin-top:6px;">Status / Memo</div>
+                <div class="metric-label" style="margin-top:6px;">{ui_text('状態 / メモ', 'Status / Memo')}</div>
                 <div style="font-size:11px; line-height:1.45; color:#c8c3b8;">{selected_point.get('support_or_resistance_status', '')}<br>{selected_point.get('memo', '')}</div>
             </div>
             """,
@@ -2489,7 +2542,7 @@ def render_analysis(data):
         )
 
     if len(sr_levels) > 0:
-        st.subheader("POC / Support / Resistance Candidates")
+        st.subheader(ui_text("POC / サポート / レジスタンス候補", "POC / Support / Resistance Candidates"))
         st.dataframe(sr_levels, use_container_width=True)
 
     latest = summary_5m.tail(1).iloc[0]
