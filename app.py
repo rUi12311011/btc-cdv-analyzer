@@ -590,6 +590,18 @@ with st.sidebar:
     liquidity_keep_pct_raw = st.text_input("Liquidity Thin Keep %", value="33")
     liquidity_keep_pct = safe_float_input(liquidity_keep_pct_raw, default=33.0, min_value=1.0, max_value=100.0)
 
+    st.markdown("---")
+    st.markdown("### Big Spike / Squeeze Mode")
+
+    big_spike_only_mode = st.checkbox(
+        "500ドル級だけ表示",
+        value=True,
+        help="5分足1本で大きく走る候補だけを残します。通常のL5/S5や小さいsetupは非表示にします。"
+    )
+
+    min_spike_usd_raw = st.text_input("Min 5m Spike USD", value="500")
+    min_spike_usd = safe_float_input(min_spike_usd_raw, default=500.0, min_value=50.0, max_value=5000.0)
+
     hide_low_confidence_points = st.checkbox(
         "Filter chart points",
         value=True,
@@ -1700,7 +1712,7 @@ def analyze_tradingview_probability(tv_csv_files, lookahead_bars=6):
 # 重要ポイント自動抽出
 # =========================================================
 
-def detect_important_points(summary_5m, tv_probability_stats=None):
+def detect_important_points(summary_5m, tv_probability_stats=None, min_spike_usd=500.0, big_spike_only_mode=True):
     """Absorption-first classifier.
 
     This app is not an entry engine. It classifies whether an absorption area later behaves as
@@ -1771,7 +1783,7 @@ def detect_important_points(summary_5m, tv_probability_stats=None):
 
     def add_point(row, point_type, score, reason, absorption_high=pd.NA, absorption_low=pd.NA,
                   break_level=pd.NA, invalid_level=pd.NA, status="", tape_score=0,
-                  squeeze_confidence=0, memo="", spot_price=None):
+                  squeeze_confidence=0, memo="", spot_price=None, spike_distance_usd=pd.NA):
         base = base_from_row(row)
         if spot_price is not None:
             base["spot_price"] = spot_price
@@ -1789,6 +1801,8 @@ def detect_important_points(summary_5m, tv_probability_stats=None):
             "tape_score": round(float(tape_score), 1),
             "squeeze_confidence": round(float(adjusted_confidence), 1),
             "historical_probability_%": round(float(historical_probability), 1) if pd.notna(historical_probability) else pd.NA,
+            "spike_distance_usd": round(float(spike_distance_usd), 1) if pd.notna(spike_distance_usd) else pd.NA,
+            "min_spike_usd": float(min_spike_usd),
             "memo": memo,
         })
         rows.append(base)
@@ -1813,6 +1827,26 @@ def detect_important_points(summary_5m, tv_probability_stats=None):
         score += 5 if price_ok else 0
         return min(100, score)
 
+    def up_spike_distance(row, base_level=None):
+        base = safe_float(base_level, safe_float(row.get("open", 0))) if base_level is not None else safe_float(row.get("open", 0))
+        return max(
+            safe_float(row.get("high", 0)) - safe_float(row.get("open", 0)),
+            safe_float(row.get("high", 0)) - base,
+            abs(safe_float(row.get("candle_move", 0))) if safe_float(row.get("candle_move", 0)) > 0 else 0
+        )
+
+    def down_spike_distance(row, base_level=None):
+        base = safe_float(base_level, safe_float(row.get("open", 0))) if base_level is not None else safe_float(row.get("open", 0))
+        return max(
+            safe_float(row.get("open", 0)) - safe_float(row.get("low", 0)),
+            base - safe_float(row.get("low", 0)),
+            abs(safe_float(row.get("candle_move", 0))) if safe_float(row.get("candle_move", 0)) < 0 else 0
+        )
+
+    def is_big_spike(row, direction, base_level=None):
+        d = up_spike_distance(row, base_level) if direction == "up" else down_spike_distance(row, base_level)
+        return d >= float(min_spike_usd), d
+
     lookahead = 6
 
     for i, row in df.iterrows():
@@ -1836,41 +1870,51 @@ def detect_important_points(summary_5m, tv_probability_stats=None):
                 (future["candle_move"] < 0)
             ]
 
-            setup_tape = tape_score_for(row, "up")
-            setup_confidence = min(75, 35 + setup_tape * 0.35)
-            add_point(
-                row,
-                "Short squeeze setup",
-                score=82,
-                reason=(
-                    f"sell吸収を確認。sell delta {row['delta_BTC']:.2f} BTC に対して価格が下に進んでいない。"
-                    f"吸収足高値 {absorption_high:.2f} を明確に上抜け、かつbuy delta優勢ならShort squeeze trigger候補。"
-                ),
-                absorption_high=absorption_high,
-                absorption_low=absorption_low,
-                break_level=absorption_high,
-                invalid_level=absorption_low,
-                status="Short squeeze setup / waiting for absorption high break",
-                tape_score=setup_tape,
-                squeeze_confidence=setup_confidence,
-                memo="このアイコンはスクイーズ予兆。自動でSelected 5m Bar JSTへ送る対象。",
-                spot_price=row["high"]
-            )
+            setup_visible = not big_spike_only_mode
+            if big_spike_only_mode:
+                if len(future_up) > 0:
+                    setup_visible = setup_visible or is_big_spike(future_up.iloc[0], "up", absorption_high)[0]
+                if len(future_down) > 0:
+                    setup_visible = setup_visible or is_big_spike(future_down.iloc[0], "down", absorption_low)[0]
+
+            if setup_visible:
+                setup_tape = tape_score_for(row, "up")
+                setup_confidence = min(75, 35 + setup_tape * 0.35)
+                add_point(
+                    row,
+                    "Short squeeze setup",
+                    score=82,
+                    reason=(
+                        f"sell吸収を確認。sell delta {row['delta_BTC']:.2f} BTC に対して価格が下に進んでいない。"
+                        f"吸収足高値 {absorption_high:.2f} を明確に上抜け、かつbuy delta優勢ならShort squeeze trigger候補。"
+                    ),
+                    absorption_high=absorption_high,
+                    absorption_low=absorption_low,
+                    break_level=absorption_high,
+                    invalid_level=absorption_low,
+                    status="Short squeeze setup / waiting for absorption high break",
+                    tape_score=setup_tape,
+                    squeeze_confidence=setup_confidence,
+                    memo="このアイコンは500ドル級スパイクにつながった吸収予兆だけを表示対象にしています。",
+                    spot_price=row["high"]
+                )
 
             if len(future_up) > 0:
                 trigger = future_up.iloc[0]
-                tape = tape_score_for(trigger, "up")
-                confidence = 55 + min(35, tape * 0.35)
-                point_type = "Tape-confirmed squeeze" if tape >= 70 else "Short squeeze trigger"
-                add_point(
-                    trigger,
-                    point_type,
-                    score=90 if tape >= 70 else 84,
-                    reason=(
-                        f"{row['time_5m']} のsell吸収後、吸収足高値 {absorption_high:.2f} を上抜け。"
-                        f"buy比率 {trigger['buy_ratio_%']:.1f}%、delta {trigger['delta_BTC']:.2f} BTC、"
-                        f"tape_score {tape:.1f}。ショートが踏まれ始めた可能性。"
-                    ),
+                big_ok, spike_dist = is_big_spike(trigger, "up", absorption_high)
+                if big_ok or not big_spike_only_mode:
+                    tape = tape_score_for(trigger, "up")
+                    confidence = 55 + min(35, tape * 0.35)
+                    point_type = "Tape-confirmed squeeze" if tape >= 70 else "Short squeeze trigger"
+                    add_point(
+                        trigger,
+                        point_type,
+                        score=92 if big_ok and tape >= 70 else (88 if big_ok else 84),
+                        reason=(
+                            f"{row['time_5m']} のsell吸収後、吸収足高値 {absorption_high:.2f} を上抜け。"
+                            f"5分足スパイク距離 {spike_dist:.1f} USD、buy比率 {trigger['buy_ratio_%']:.1f}%、"
+                            f"delta {trigger['delta_BTC']:.2f} BTC、tape_score {tape:.1f}。"
+                        ),
                     absorption_high=absorption_high,
                     absorption_low=absorption_low,
                     break_level=absorption_high,
@@ -1878,23 +1922,26 @@ def detect_important_points(summary_5m, tv_probability_stats=None):
                     status="吸収高値を上抜け。Short squeeze trigger。",
                     tape_score=tape,
                     squeeze_confidence=confidence,
-                    memo="sell吸収を起点に上方向へブレイク。テープ確認でスクイーズ確度を評価。",
-                    spot_price=trigger["close"]
+                    memo="sell吸収を起点に上方向へブレイク。500ドル級の大きいスパイク候補として評価。",
+                    spot_price=trigger["close"],
+                    spike_distance_usd=spike_dist
                 )
             elif len(future_down) > 0:
                 fail = future_down.iloc[0]
-                tape = tape_score_for(fail, "down")
-                confidence = min(95, 58 + tape * 0.35 + min(10, safe_float(fail.get("liquidity_thin_score", 0)) * 0.08))
-                add_point(
-                    fail,
-                    "Downside spike risk",
-                    score=86,
-                    reason=(
-                        f"{row['time_5m']} のsell吸収＝Support候補が失敗。"
-                        f"吸収足安値 {absorption_low:.2f} を下抜け、sell比率 {fail['sell_ratio_%']:.1f}%、"
-                        f"delta {fail['delta_BTC']:.2f} BTC、liquidity_thin_score {safe_float(fail.get('liquidity_thin_score', 0)):.1f}。"
-                        f"下方向のStop-run / Spike risk。"
-                    ),
+                big_ok, spike_dist = is_big_spike(fail, "down", absorption_low)
+                if big_ok or not big_spike_only_mode:
+                    tape = tape_score_for(fail, "down")
+                    confidence = min(95, 58 + tape * 0.35 + min(10, safe_float(fail.get("liquidity_thin_score", 0)) * 0.08))
+                    add_point(
+                        fail,
+                        "Downside spike risk",
+                        score=92 if big_ok else 86,
+                        reason=(
+                            f"{row['time_5m']} のsell吸収＝Support候補が失敗。"
+                            f"吸収足安値 {absorption_low:.2f} を下抜け、5分足スパイク距離 {spike_dist:.1f} USD、"
+                            f"sell比率 {fail['sell_ratio_%']:.1f}%、delta {fail['delta_BTC']:.2f} BTC、"
+                            f"liquidity_thin_score {safe_float(fail.get('liquidity_thin_score', 0)):.1f}。"
+                        ),
                     absorption_high=absorption_high,
                     absorption_low=absorption_low,
                     break_level=absorption_low,
@@ -1902,13 +1949,15 @@ def detect_important_points(summary_5m, tv_probability_stats=None):
                     status="Support failed / downside spike risk",
                     tape_score=tape,
                     squeeze_confidence=confidence,
-                    memo="吸収が支えにならず逆方向に抜けた。単なるFailed breakoutではなく、流動性が薄い方向へのスパイク警戒。",
-                    spot_price=fail["close"]
+                    memo="吸収が支えにならず逆方向に抜けた。500ドル級の大きい下方向スパイク候補だけを重視。",
+                    spot_price=fail["close"],
+                    spike_distance_usd=spike_dist
                 )
             else:
-                add_point(
-                    row,
-                    "Support candidate",
+                if not big_spike_only_mode:
+                    add_point(
+                        row,
+                        "Support candidate",
                     score=78 + min(15, safe_float(row.get("delta_strength", 0)) * 30),
                     reason=(
                         f"sell delta {row['delta_BTC']:.2f} BTC に対して実体 {row['candle_move']:.2f} USD。"
@@ -1943,41 +1992,51 @@ def detect_important_points(summary_5m, tv_probability_stats=None):
                 (future["candle_move"] > 0)
             ]
 
-            setup_tape = tape_score_for(row, "down")
-            setup_confidence = min(75, 35 + setup_tape * 0.35)
-            add_point(
-                row,
-                "Long squeeze setup",
-                score=82,
-                reason=(
-                    f"buy吸収を確認。buy delta +{row['delta_BTC']:.2f} BTC に対して価格が上に進んでいない。"
-                    f"吸収足安値 {absorption_low:.2f} を明確に下抜け、かつsell delta優勢ならLong squeeze trigger候補。"
-                ),
-                absorption_high=absorption_high,
-                absorption_low=absorption_low,
-                break_level=absorption_low,
-                invalid_level=absorption_high,
-                status="Long squeeze setup / waiting for absorption low break",
-                tape_score=setup_tape,
-                squeeze_confidence=setup_confidence,
-                memo="このアイコンはスクイーズ予兆。自動でSelected 5m Bar JSTへ送る対象。",
-                spot_price=row["low"]
-            )
+            setup_visible = not big_spike_only_mode
+            if big_spike_only_mode:
+                if len(future_down) > 0:
+                    setup_visible = setup_visible or is_big_spike(future_down.iloc[0], "down", absorption_low)[0]
+                if len(future_up) > 0:
+                    setup_visible = setup_visible or is_big_spike(future_up.iloc[0], "up", absorption_high)[0]
+
+            if setup_visible:
+                setup_tape = tape_score_for(row, "down")
+                setup_confidence = min(75, 35 + setup_tape * 0.35)
+                add_point(
+                    row,
+                    "Long squeeze setup",
+                    score=82,
+                    reason=(
+                        f"buy吸収を確認。buy delta +{row['delta_BTC']:.2f} BTC に対して価格が上に進んでいない。"
+                        f"吸収足安値 {absorption_low:.2f} を明確に下抜け、かつsell delta優勢ならLong squeeze trigger候補。"
+                    ),
+                    absorption_high=absorption_high,
+                    absorption_low=absorption_low,
+                    break_level=absorption_low,
+                    invalid_level=absorption_high,
+                    status="Long squeeze setup / waiting for absorption low break",
+                    tape_score=setup_tape,
+                    squeeze_confidence=setup_confidence,
+                    memo="このアイコンは500ドル級スパイクにつながった吸収予兆だけを表示対象にしています。",
+                    spot_price=row["low"]
+                )
 
             if len(future_down) > 0:
                 trigger = future_down.iloc[0]
-                tape = tape_score_for(trigger, "down")
-                confidence = 55 + min(35, tape * 0.35)
-                point_type = "Tape-confirmed squeeze" if tape >= 70 else "Long squeeze trigger"
-                add_point(
-                    trigger,
-                    point_type,
-                    score=90 if tape >= 70 else 84,
-                    reason=(
-                        f"{row['time_5m']} のbuy吸収後、吸収足安値 {absorption_low:.2f} を下抜け。"
-                        f"sell比率 {trigger['sell_ratio_%']:.1f}%、delta {trigger['delta_BTC']:.2f} BTC、"
-                        f"tape_score {tape:.1f}。ロングが投げ始めた可能性。"
-                    ),
+                big_ok, spike_dist = is_big_spike(trigger, "down", absorption_low)
+                if big_ok or not big_spike_only_mode:
+                    tape = tape_score_for(trigger, "down")
+                    confidence = 55 + min(35, tape * 0.35)
+                    point_type = "Tape-confirmed squeeze" if tape >= 70 else "Long squeeze trigger"
+                    add_point(
+                        trigger,
+                        point_type,
+                        score=92 if big_ok and tape >= 70 else (88 if big_ok else 84),
+                        reason=(
+                            f"{row['time_5m']} のbuy吸収後、吸収足安値 {absorption_low:.2f} を下抜け。"
+                            f"5分足スパイク距離 {spike_dist:.1f} USD、sell比率 {trigger['sell_ratio_%']:.1f}%、"
+                            f"delta {trigger['delta_BTC']:.2f} BTC、tape_score {tape:.1f}。"
+                        ),
                     absorption_high=absorption_high,
                     absorption_low=absorption_low,
                     break_level=absorption_low,
@@ -1985,23 +2044,26 @@ def detect_important_points(summary_5m, tv_probability_stats=None):
                     status="吸収安値を下抜け。Long squeeze trigger。",
                     tape_score=tape,
                     squeeze_confidence=confidence,
-                    memo="buy吸収を起点に下方向へブレイク。テープ確認でスクイーズ確度を評価。",
-                    spot_price=trigger["close"]
+                    memo="buy吸収を起点に下方向へブレイク。500ドル級の大きいスパイク候補として評価。",
+                    spot_price=trigger["close"],
+                    spike_distance_usd=spike_dist
                 )
             elif len(future_up) > 0:
                 fail = future_up.iloc[0]
-                tape = tape_score_for(fail, "up")
-                confidence = min(95, 58 + tape * 0.35 + min(10, safe_float(fail.get("liquidity_thin_score", 0)) * 0.08))
-                add_point(
-                    fail,
-                    "Upside spike risk",
-                    score=86,
-                    reason=(
-                        f"{row['time_5m']} のbuy吸収＝Resistance候補が失敗。"
-                        f"吸収足高値 {absorption_high:.2f} を上抜け、buy比率 {fail['buy_ratio_%']:.1f}%、"
-                        f"delta {fail['delta_BTC']:.2f} BTC、liquidity_thin_score {safe_float(fail.get('liquidity_thin_score', 0)):.1f}。"
-                        f"上方向のStop-run / Spike risk。"
-                    ),
+                big_ok, spike_dist = is_big_spike(fail, "up", absorption_high)
+                if big_ok or not big_spike_only_mode:
+                    tape = tape_score_for(fail, "up")
+                    confidence = min(95, 58 + tape * 0.35 + min(10, safe_float(fail.get("liquidity_thin_score", 0)) * 0.08))
+                    add_point(
+                        fail,
+                        "Upside spike risk",
+                        score=92 if big_ok else 86,
+                        reason=(
+                            f"{row['time_5m']} のbuy吸収＝Resistance候補が失敗。"
+                            f"吸収足高値 {absorption_high:.2f} を上抜け、5分足スパイク距離 {spike_dist:.1f} USD、"
+                            f"buy比率 {fail['buy_ratio_%']:.1f}%、delta {fail['delta_BTC']:.2f} BTC、"
+                            f"liquidity_thin_score {safe_float(fail.get('liquidity_thin_score', 0)):.1f}。"
+                        ),
                     absorption_high=absorption_high,
                     absorption_low=absorption_low,
                     break_level=absorption_high,
@@ -2009,13 +2071,15 @@ def detect_important_points(summary_5m, tv_probability_stats=None):
                     status="Resistance failed / upside spike risk",
                     tape_score=tape,
                     squeeze_confidence=confidence,
-                    memo="吸収が抵抗にならず逆方向に抜けた。単なるFailed breakoutではなく、流動性が薄い方向へのスパイク警戒。",
-                    spot_price=fail["close"]
+                    memo="吸収が抵抗にならず逆方向に抜けた。500ドル級の大きい上方向スパイク候補だけを重視。",
+                    spot_price=fail["close"],
+                    spike_distance_usd=spike_dist
                 )
             else:
-                add_point(
-                    row,
-                    "Resistance candidate",
+                if not big_spike_only_mode:
+                    add_point(
+                        row,
+                        "Resistance candidate",
                     score=78 + min(15, safe_float(row.get("delta_strength", 0)) * 30),
                     reason=(
                         f"buy delta +{row['delta_BTC']:.2f} BTC に対して実体 {row['candle_move']:.2f} USD。"
@@ -2032,7 +2096,7 @@ def detect_important_points(summary_5m, tv_probability_stats=None):
                     spot_price=row["high"]
                 )
 
-        if bool(row.get("bullish_confirmation", False)):
+        if (not big_spike_only_mode) and bool(row.get("bullish_confirmation", False)):
             add_point(
                 row,
                 "Buy confirmation",
@@ -2045,7 +2109,7 @@ def detect_important_points(summary_5m, tv_probability_stats=None):
                 spot_price=row["low"] - max(row.get("range", 0) * 0.20, 8)
             )
 
-        if bool(row.get("bearish_confirmation", False)):
+        if (not big_spike_only_mode) and bool(row.get("bearish_confirmation", False)):
             add_point(
                 row,
                 "Sell confirmation",
@@ -2058,7 +2122,7 @@ def detect_important_points(summary_5m, tv_probability_stats=None):
                 spot_price=row["high"] + max(row.get("range", 0) * 0.20, 8)
             )
 
-        if safe_float(row.get("liquidity_thin_score", 0)) >= thin_threshold and row["volume_BTC"] < vol_threshold:
+        if (not big_spike_only_mode) and safe_float(row.get("liquidity_thin_score", 0)) >= thin_threshold and row["volume_BTC"] < vol_threshold:
             add_point(
                 row,
                 "Liquidity thin move",
@@ -2438,6 +2502,7 @@ def render_analysis(data):
             "Focus", "No", "time", "type_label", "score", "reason",
             "support_or_resistance_status", "squeeze_confidence", "historical_probability_%", "tape_score",
             "absorption_high", "absorption_low", "break_level", "invalid_level",
+            "spike_distance_usd", "min_spike_usd",
             "price_impact_per_BTC", "liquidity_thin_score", "delta_impact_score",
             "same_side_streak", "large_trade_count", "memo",
             "open", "high", "low", "close",
@@ -2797,7 +2862,12 @@ if run:
             "note": "TradingView CSV未入力"
         }
 
-        important_points = detect_important_points(summary_5m, tv_probability_stats=tv_probability_stats)
+        important_points = detect_important_points(
+            summary_5m,
+            tv_probability_stats=tv_probability_stats,
+            min_spike_usd=float(min_spike_usd),
+            big_spike_only_mode=bool(big_spike_only_mode)
+        )
 
         latest = summary_5m.tail(1).iloc[0]
         current_price = float(latest["close"])
@@ -2815,6 +2885,8 @@ if run:
             "range_end": range_end,
             "requested_hours_back": int(hours_back),
             "max_history_hours": int(max_history_hours),
+            "big_spike_only_mode": bool(big_spike_only_mode),
+            "min_spike_usd": float(min_spike_usd),
             "df_candles": df_candles,
             "df_range": df_range,
             "summary_5m": summary_5m,
