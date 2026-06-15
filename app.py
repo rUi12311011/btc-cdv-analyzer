@@ -1009,17 +1009,21 @@ def show_candlestick_chart(df_candles, product_id, important_points=None, select
         paper_bgcolor="#9b9b9b",
         plot_bgcolor="#9b9b9b",
         font=dict(color="#111111"),
-        margin=dict(l=20, r=70, t=12, b=120),
+        margin=dict(l=20, r=250, t=12, b=50),
         showlegend=True,
         legend=dict(
-            orientation="h",
+            orientation="v",
             yanchor="top",
-            y=-0.18,
-            xanchor="center",
-            x=0.5,
-            bgcolor="rgba(170, 170, 170, 0.95)",
+            y=1.0,
+            xanchor="left",
+            x=1.02,
+            bgcolor="rgba(170, 170, 170, 0.92)",
             bordercolor="#111111",
-            borderwidth=1
+            borderwidth=1,
+            font=dict(size=10, color="#111111"),
+            itemwidth=30,
+            tracegroupgap=2,
+            itemsizing="constant"
         )
     )
 
